@@ -188,8 +188,29 @@ automatically through `../../cmake/XbeRecomp.cmake`; no `sdk\` copy is needed.
 - Reference project `Reference\SCDA-XBERecomp-3` is an older snapshot of this SDK (Splinter Cell DA, Bink not XMV);
   its exception code matched ours, so the fixes above are new. Its hooks are game-specific.
 - Testing without the user: launch hidden, `Start-Sleep`, then `PostMessage` WM_KEYDOWN VK_F3 to dump threads.
+- Frame capture for the user: `run_capture.bat` sets XBE_CAPTURE_DIR; F3 writes `out\build\release\capture\<time>\
+  frame.txt` (every draw: shader, state, first vertices, constants) plus targets and shaders.
+
+## PC features done (2026-11-11, user confirmed each)
+- **F10 settings overlay** (`runtime\app\menu.cpp`, Segoe UI sized to the monitor): display mode, resolution, render
+  resolution, aspect (4:3 / 16:9), field of view, max frame rate, V-Sync, FPS counter, Hide HUD, anisotropic
+  filtering, audio output, Skip Intros. Saved to settings.toml as changed; the controller reads idle while it is open.
+- **Widescreen** (`src\game\widescreen.cpp`): FCameraSceneNode::UpdateMatrices 0x1F3E50 builds the projection with
+  FPerspectiveMatrix 0x1F1AC0 (call returns to 0x1F42F7); M[0][0] *= 0.75 on 16:9 (Hor+).
+- **Field of View**: the world camera (75 deg, first UpdateMatrices of each Swap) gets M00 and M11 / FovScale; the
+  weapon camera (47 deg, second) keeps its angle. Its node class is also the menus' camera, so order tells them apart.
+- **HUD on 16:9** (`runtime\gpu\screen2d.cpp`, GameInfo::screen_2d): the HUD is fixed function draws through an
+  orthographic projection. Each frame's such draws are cut into runs in draw order (touching pieces: a 3x3 box, then
+  its text); a run is narrowed to 4:3 about the side it sits on or the centre (applied to that draw's wvp the next
+  frame, matched by position in the order). Draws 85%+ of the width still fill. Menus and movies (no 3D) are shown
+  4:3. The subtitle box spans the full width in the 4:3 layout, behind the ammo panel and compass.
+- **Hide HUD**: the same canvas draws are dropped in 3D frames (not full width ones).
+- **Skip Intros** (`src\game\intro.cpp`): the four boot movies (table 0x5EDA70) are each a call of 0x300470; the
+  per-frame 0x2F4540 returns 0 for them.
 
 ## Future: PC features the user wants (paused 2026-11-10)
+Still to do: mouse and keyboard (needs this game's camera input), SMAA, ambient occlusion, a controller combo to
+open the overlay, overlay navigation for non-Xbox pads (ImGui's backend reads XInput pad 0 only).
 
 Mouse and keyboard, 16:9 widescreen, resolutions up to 4K, FoV, SMAA, ambient occlusion, and a settings overlay.
 - **Our SDK today**: no in-game overlay (`runtime\app` has no menu.cpp), though Dear ImGui is linked and the window

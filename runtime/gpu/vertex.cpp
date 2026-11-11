@@ -1,5 +1,7 @@
 #include "gpu/vertex.h"
 
+#include "gpu/screen2d.h"
+
 #include <algorithm>
 #include <cstring>
 
@@ -460,10 +462,16 @@ bool Assemble(const State& s, uint32_t prim, uint32_t start, uint32_t count, con
     if (!nregs) return false;
     Inputs inputs = {*layout, regs, nregs};
 
-    // the guest's own vertices when the input assembler can read every element of them
-    bool raw = RawReadable(s, inputs);
+    // the guest's own vertices when the input assembler can read every element of them; screen space ones on the
+    // CPU when they are re-placed for a 16:9 frame
+    bool place = out.pretransformed && screen2d::Wanted();
+    if (!out.pretransformed) screen2d::Note3D();
+    bool raw = RawReadable(s, inputs) && !place;
     if (raw) return AssembleRaw(s, inputs, d, out);
-    return AssembleConverted(s, inputs, d, out);
+    if (!AssembleConverted(s, inputs, d, out)) return false;
+    if (!place) return true;
+    int k = int(std::find(regs, regs + nregs, 0) - regs);
+    return k == nregs || screen2d::Place(s, out, k);
 }
 
 }  // namespace gpu

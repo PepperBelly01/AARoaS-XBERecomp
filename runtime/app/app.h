@@ -23,9 +23,12 @@ struct Settings {
     uint32_t width = 0, height = 0;  // 0 is the desktop mode
     uint32_t render_percent = 100;   // of the output height
     uint32_t aspect = 0;             // kAspectAuto, kAspect4x3 or kAspect16x9
+    uint32_t fov = 0;                // horizontal degrees on a 4:3 frame, 0 the game's own (GameInfo::fov)
     uint32_t fps_cap = 60;           // 0 unlimited, kFpsCapRefresh the monitor's refresh rate
     bool vsync = true;
     bool fps_counter = false;        // frames a second, top left
+    bool hide_hud = false;           // the 2D over the 3D view is not drawn (GameInfo::screen_2d)
+    bool skip_intros = false;        // the boot movies, for a game whose hooks honour it (GameInfo::skip_intros)
     uint32_t aniso = 0;              // 0 as the game asks
     bool custom_textures = true;     // images in textures\replacement\ beside the exe replace the game's
     bool dump_textures = false;      // each texture once into textures\dumps\ beside the exe
@@ -47,6 +50,8 @@ struct Mode {
 Mode Desktop();
 Mode Output();
 float RenderScale(uint32_t guest_height);
+// tangent of the fov setting's half angle over that of the game's own (GameInfo::fov); 1 on the game's
+float FovScale();
 // the console reports a widescreen TV and the frame is shown 16:9, else 4:3 as on a 4:3 TV: the aspect setting, or
 // on auto an output 3:2 or wider
 bool Widescreen();
@@ -101,6 +106,13 @@ struct GameInfo {
     const wchar_t* missing;      // message when neither the game files nor a disc image are found
     std::vector<std::pair<const char*, const char*>> images;  // xbe file name, executable name
     std::vector<Option> options;
+    // the game's horizontal field of view in degrees, for the overlay's Field of View; 0: the game has no such
+    // setting (its hooks apply app::FovScale)
+    float fov = 0;
+    // the HUD, menus and text are screen space (XYZRHW) 2D made for 4:3: kept so on a 16:9 frame, and hideable
+    // (gpu/screen2d.h)
+    bool screen_2d = false;
+    bool skip_intros = false;  // the game's hooks skip its boot movies with Settings::skip_intros: the overlay offers it
     // the settings file's toml::table, for what options cannot hold
     void (*load)(const void* table);
     void (*save)(void* table);

@@ -127,9 +127,20 @@ void DrawDisplay() {
     Hint("Draws the game at this share of the output resolution. Above 100% is supersampling: sharper, slower.");
 
     uint32_t aspect = s.aspect == kAspectAuto ? (Widescreen() ? kAspect16x9 : kAspect4x3) : s.aspect;
-    if (Pick("Aspect Ratio", aspect, {{kAspect4x3, "4:3 (original)"}, {kAspect16x9, "Stretch to 16:9"}})) {
+    if (Pick("Aspect Ratio", aspect, {{kAspect4x3, "4:3 (original)"}, {kAspect16x9, "16:9"}})) {
         s.aspect = aspect;
         Save();
+    }
+
+    if (kGame.fov > 0) {
+        std::vector<Choice> angles;
+        char text[48];
+        std::snprintf(text, sizeof(text), "Game default (%.0f)", kGame.fov);
+        angles.push_back({0, text});
+        for (uint32_t a = 60; a <= 120; a += 5)
+            if (a != uint32_t(kGame.fov + 0.5f)) angles.push_back({a, std::to_string(a)});
+        if (Pick("Field of View", s.fov, angles)) Save();
+        Hint("Horizontal degrees as on a 4:3 screen; 16:9 adds to the sides. Aiming zooms in from it as usual.");
     }
 
     uint32_t cap = s.fps_cap;
@@ -146,12 +157,25 @@ void DrawDisplay() {
     }
     if (ImGui::Checkbox("V-Sync", &s.vsync)) Save();
     if (ImGui::Checkbox("FPS Counter", &s.fps_counter)) Save();
+    if (kGame.screen_2d) {
+        if (ImGui::Checkbox("Hide HUD", &s.hide_hud)) Save();
+        Hint("Hides everything drawn flat over the 3D view in play, subtitles and the pause menu included. "
+             "Menu screens still show.");
+    }
 }
 
 void DrawGraphics() {
     Settings& s = Get();
     ImGui::SeparatorText("Graphics");
     if (Pick("Anisotropic Filtering", s.aniso, {{0, "Game default"}, {2, "2x"}, {4, "4x"}, {8, "8x"}, {16, "16x"}})) Save();
+}
+
+void DrawGeneral() {
+    Settings& s = Get();
+    if (!kGame.skip_intros) return;
+    ImGui::SeparatorText("General");
+    if (ImGui::Checkbox("Skip Intros", &s.skip_intros)) Save();
+    Hint("The logo and rating movies at start up. Takes effect the next time the game starts.");
 }
 
 void DrawAudio() {
@@ -207,6 +231,7 @@ void DrawMenu(double fps) {
     DrawDisplay();
     DrawGraphics();
     DrawAudio();
+    DrawGeneral();
     ImGui::PopItemWidth();
     ImGui::Separator();
     if (ImGui::Button("Reset to Defaults")) {

@@ -16,6 +16,9 @@ const app::GameInfo app::kGame = {
                L"with its folders (MapsXBoxL, System, TexturesXBoxW, ...) beside it.",
     .images = {{"default.xbe", "AARoaS"}},
     .options = {},
+    .fov = 75,  // the player camera's angle (widescreen.cpp)
+    .screen_2d = true,
+    .skip_intros = true,  // intro.cpp
     .load = nullptr,
     .save = nullptr,
     .init = nullptr,

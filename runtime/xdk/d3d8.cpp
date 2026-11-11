@@ -680,6 +680,8 @@ HLE_STDCALL(D3DDevice_Swap, 1) {
 }
 
 namespace d3d {
+uint32_t Presents() { return g_presents.load(); }
+
 // UpdateOverlay's frame: Swap shows it while it keeps coming. A title that does not swap during the movie gets it
 // presented here.
 void PresentOverlay(uint32_t surface) {

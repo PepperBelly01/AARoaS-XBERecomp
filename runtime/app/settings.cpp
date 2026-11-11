@@ -8,6 +8,7 @@
 #include <windows.h>
 
 #include <algorithm>
+#include <cmath>
 #include <fstream>
 #include <mutex>
 #include <sstream>
@@ -55,9 +56,12 @@ void Load() {
     s.height = t["height"].value_or(s.height);
     s.render_percent = t["render_percent"].value_or(s.render_percent);
     s.aspect = std::min(t["aspect"].value_or(s.aspect), kAspect16x9);
+    s.fov = std::min(t["fov"].value_or(s.fov), 150u);
     s.fps_cap = t["fps_cap"].value_or(s.fps_cap);
     s.vsync = t["vsync"].value_or(s.vsync);
     s.fps_counter = t["fps_counter"].value_or(s.fps_counter);
+    s.hide_hud = t["hide_hud"].value_or(s.hide_hud);
+    s.skip_intros = t["skip_intros"].value_or(s.skip_intros);
     s.aniso = t["anisotropic_filtering"].value_or(s.aniso);
     s.custom_textures = t["custom_textures"].value_or(s.custom_textures);
     s.dump_textures = t["dump_textures"].value_or(s.dump_textures);
@@ -81,9 +85,12 @@ toml::table Table() {
                   {"height", int64_t(s.height)},
                   {"render_percent", int64_t(s.render_percent)},
                   {"aspect", int64_t(s.aspect)},
+                  {"fov", int64_t(s.fov)},
                   {"fps_cap", int64_t(s.fps_cap)},
                   {"vsync", s.vsync},
                   {"fps_counter", s.fps_counter},
+                  {"hide_hud", s.hide_hud},
+                  {"skip_intros", s.skip_intros},
                   {"anisotropic_filtering", int64_t(s.aniso)},
                   {"custom_textures", s.custom_textures},
                   {"dump_textures", s.dump_textures},
@@ -165,6 +172,13 @@ bool Widescreen() {
     if (aspect == kAspect16x9) return true;
     Mode m = CachedOutput();
     return m.width * 2 >= m.height * 3;  // 3:2 or wider
+}
+
+float FovScale() {
+    uint32_t fov = Get().fov;
+    if (!fov || kGame.fov <= 0) return 1.0f;
+    constexpr float kHalfDegree = 3.14159265f / 360.0f;
+    return std::tan(float(fov) * kHalfDegree) / std::tan(kGame.fov * kHalfDegree);
 }
 
 float RenderScale(uint32_t guest_height) {

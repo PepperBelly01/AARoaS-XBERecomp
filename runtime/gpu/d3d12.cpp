@@ -33,6 +33,7 @@
 #include "core/diag.h"
 #include "core/log.h"
 #include "gpu/backend.h"
+#include "gpu/screen2d.h"
 #include "gpu/ext.h"
 #include "gpu/shaders.h"
 #include "gpu/texture.h"
@@ -2318,6 +2319,9 @@ constexpr size_t kTsProjection = 3;
 constexpr size_t kTsTexture0 = 16;
 constexpr size_t kTsWorld = 256;
 
+// the running draw's place as a 2D canvas, from Draw
+screen2d::Canvas g_canvas = screen2d::Canvas::Not;
+
 void FillTransformConstants(const State& s, GuestExtent size, DrawConstants& c) {
     uint32_t gw = size.w;
     uint32_t gh = size.h;
@@ -2334,6 +2338,8 @@ void FillTransformConstants(const State& s, GuestExtent size, DrawConstants& c) 
     float vpm[16] = {sx, 0, 0, 0, 0, sy, 0, 0, 0, 0, v.max_z - v.min_z, 0, ox, oy, v.min_z, 1};
     float full[16];
     MatMul(wvp, vpm, full);
+    if (g_canvas == screen2d::Canvas::Left || g_canvas == screen2d::Canvas::Centre || g_canvas == screen2d::Canvas::Right)
+        screen2d::Narrow(g_canvas, full);
     Transpose(full, c.wvp);
     Transpose(wv, c.wv);
     // normals take the inverse transpose of the upper 3x3
@@ -2827,6 +2833,9 @@ void D3D12Backend::Draw(const State& s, uint32_t prim, uint32_t start, uint32_t 
     if (ext_) ext_->BeginDraw(s);
     Assembled& a = asm_;
     if (!AssembleDraw(s, prim, start, count, indices, a)) return;
+    // a 2D canvas drawn with transforms (the HUD): placed for a 16:9 frame, or hidden
+    g_canvas = screen2d::Classify(s, a);
+    if (g_canvas == screen2d::Canvas::Hide) return;
     // past the ring every upload is a buffer of its own: seconds lost on a frame that draws a whole level once
     if (CurrentFrame().used > kUploadSize - kUploadReserve) Submit(true);
     if (!BindTargets(s)) return;
@@ -3237,8 +3246,9 @@ void D3D12Backend::UploadGammaRamp() {
 }
 
 void D3D12Backend::BlitFrame(Target& t) {
-    // 16:9 when the console reports a widescreen display, else 4:3
-    bool wide = app::Widescreen();
+    // 16:9 when the console reports a widescreen display, else 4:3; a game whose 2D is re-placed shows its menus and
+    // movies (frames without 3D) 4:3 as made
+    bool wide = app::Widescreen() && (!app::kGame.screen_2d || screen2d::Frame3D());
     float aspect = wide ? 16.0f / 9.0f : 4.0f / 3.0f;
     float w = float(bb_w_);
     float h = float(bb_h_);
@@ -3384,6 +3394,7 @@ void D3D12Backend::Present(const Surface& front) {
 
     presents_++;
     presents_seen_.store(presents_);
+    screen2d::EndFrame();
     frame_++;
     ReleaseOldTextures();
     ResetFrame();
