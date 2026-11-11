@@ -155,16 +155,33 @@ automatically through `../../cmake/XbeRecomp.cmake`; no `sdk\` copy is needed.
   0x377680, a Lua-style protected call) is longjmp'd to after a script error; 0x3776B9 was no entry. Fix: new
   recompiler option `[xbe] continuations = [...]` (tools\recomp main.cpp, analysis.cpp) makes it an entry and a
   continuation, and codegen_emit.cpp now gives the try/X86Resume wrapper to a function that holds or falls into a
-  continuation. Set in game.toml. Not yet confirmed by the user (needs their save at that screen). If it still fails,
-  the script error itself may be a real bug to chase.
-- **Dialogue sometimes silent**: 0x45C836 is `IDirectSoundBuffer_Use3DVoiceData` (XACT's buffer path at 0x453DB4,
-  twin of the stream call at 0x453D74), not a stream adjuster: it had been a no-op, so buffers never took XACT's 3D
-  voice data. Now named in game.toml; the no-op hook is gone. Not yet confirmed by the user.
+  continuation. Set in game.toml. User confirmed the crash is gone.
+- 0x45C836 is `IDirectSoundBuffer_Use3DVoiceData` (XACT's buffer path at 0x453DB4, twin of the stream call at
+  0x453D74), not a stream adjuster: it had been a no-op, so buffers never took XACT's 3D voice data. Named in game.toml.
+
+### Audio fixed (2026-11-11, user confirmed: gunfire, explosions, every dialogue line, skips cut cleanly)
+- **Submixes** (`dsound.cpp`): XACT sends 3D sounds (gunfire, explosions) through a DSBCAPS_MIXIN (0x2000) buffer
+  chosen with SetOutputBuffer. The host ignored it, so they were silent. Now a source's dry sound feeds its submix's
+  input and the submix plays after its sources.
+- **Async FlushEx** (flags & 1): XACT stops a cue with FlushEx(ASYNC) while its reads are still landing. Packets
+  Process'd after it now come back flushed (`flushing` state, cleared by Pause, PauseEx, SetFormat, Flush). Before,
+  a skipped briefing line kept playing under the next.
+- **Dialogue silent ~50%**: mission dialogue streams from `R4_TUNNEL.xwb` etc. (cue names in the .xsb, e.g.
+  `R4_S0B_E1_1_LEARY`; the `I-*.xwb` banks are registered but not used here). XACT's packet setup (0x45970B, read
+  submit 0x457FA7) marks a packet with no data left 0xDEAD and then asks 0x450695 whether any read is still pending
+  (iosb Status 0x103). The host finished reads inside NtReadFile, so for a wave that fits in ONE read the answer was
+  no, XACT cleared its "packets in flight" flag and never Process'd the data: the cue ended silently. Fix in
+  `files.cpp`: a read on a handle opened without FILE_SYNCHRONOUS_IO (options 0x30) with no event and no APC
+  returns STATUS_PENDING and completes ~2 ms later on a worker thread (`FinishLate`), as on the console.
+- Also: stream GetStatus now reports DSSTREAMSTATUS PLAYING/PAUSED/STARVED (XACT ends a streamed cue when PLAYING
+  drops), and Pause(3) = pause without starting the voice.
+- Display: `aspect` setting (`runtime\app`, 0 auto, 1 4:3, 2 16:9). This game defaults to 4:3 (`game_info.cpp`):
+  pillarboxed, and the console reports a 4:3 TV. User confirmed it looks right.
 - Overlay: the title/ESRB screens are near-still XMVs (~8 fps, uneven gaps), which flickered with the 250 ms
   timeout. The ESRB movie holds its still picture ~3 s without frames, so any timeout flickers. Now the overlay stays
   on from UpdateOverlay until EnableOverlay(FALSE), no timeout; the log confirms the game calls EnableOverlay(0) at
   the end of every movie (finish handler 0x2F44C0, call at 0x2F44D0) and menus show after.
-- Temporary diagnostics: all removed (2026-11-10). Kept on purpose: `main.cpp` DumpThreads (F3) logs thread headers
+- Temporary diagnostics: all removed (2026-11-10, and the sound ones 2026-11-11). Kept on purpose: `main.cpp` DumpThreads (F3) logs thread headers
   at report level and 768 stack words; crash log names the recompiled function (`dispatch::GuestAt`); an unhandled
   C++ throw also logs its text read as bytes ("thrown (bytes)"), since this game throws char*.
   To trace file opens again, temporarily redefine LOG_FIRST as LOGR at the top of `files.cpp`.

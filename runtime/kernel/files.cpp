@@ -1,10 +1,13 @@
 #include <algorithm>
 #include <cctype>
 #include <chrono>
+#include <condition_variable>
 #include <cstdio>
+#include <deque>
 #include <filesystem>
 #include <fstream>
 #include <map>
+#include <thread>
 
 #include "kernel/disc.h"
 #include "kernel/kernel.h"
@@ -78,6 +81,7 @@ struct File : Object {
     size_t next = 0;
     bool listed = false;
     bool delete_on_close = false;
+    bool async = false;  // opened without FILE_SYNCHRONOUS_IO_ALERT or _NONALERT (options 0x10, 0x20)
     std::mutex io;  // threads sharing a handle: seek and transfer stay together
     File() : Object(ObjType::File) {}
     ~File() override {
@@ -297,6 +301,7 @@ uint32_t OpenOnDisc(const Disc::Entry* e, const std::string& name, uint32_t hand
     f->xbox = Normalize(name);
     f->entry = e;
     f->dir = e->dir;
+    f->async = !(options & 0x30);
     W32(handle_out, NewHandle(f));
     IoStatus(iosb, kSuccess, 1);
     LOG_FIRST(400, "open %s", name.c_str());
@@ -420,6 +425,7 @@ KERNEL_EXPORT(190, NtCreateFile, 9) {
     f->xbox = Normalize(name);
     f->fp = fp;
     f->delete_on_close = options & 0x1000;  // FILE_DELETE_ON_CLOSE
+    f->async = !(options & 0x30);
     W32(handle_out, NewHandle(f));
     IoStatus(iosb, kSuccess, info);
     LOG_FIRST(400, "open %s", name.c_str());
@@ -449,7 +455,7 @@ KERNEL_EXPORT(202, NtOpenFile, 6) {
         if (!f->fp) f->fp = std::fopen(host.c_str(), "rb");
         if (!f->fp) return kAccessDenied;
     }
-    (void)options;
+    f->async = !(options & 0x30);
     W32(handle_out, NewHandle(f));
     IoStatus(iosb, kSuccess, 1);
     return kSuccess;
@@ -462,6 +468,53 @@ static uint32_t Finish(File& f, uint32_t status, uint32_t n, uint32_t event, uin
     SetEvent(f);
     Complete(event, apc, apc_ctx, iosb);
     return status;
+}
+
+// A read on an asynchronous handle with no event and no APC, whose caller polls the status block, finishes shortly
+// after the call as on the console: the data is in place at once, the status block reads STATUS_PENDING until then.
+// XACT counts a streamed packet as on its way only while its read is pending; a read that had already finished when
+// it looked dropped a wave that fits in one read (a short line of dialogue) unplayed.
+struct LateRead {
+    std::chrono::steady_clock::time_point due;
+    std::shared_ptr<File> file;
+    uint32_t iosb, status, n;
+};
+std::mutex g_late_lock;
+std::condition_variable g_late_cv;
+std::deque<LateRead> g_late;
+
+void FinishLateReads() {
+    std::unique_lock<std::mutex> lock(g_late_lock);
+    for (;;) {
+        if (g_late.empty()) {
+            g_late_cv.wait(lock);
+            continue;
+        }
+        auto due = g_late.front().due;
+        if (std::chrono::steady_clock::now() < due) {
+            g_late_cv.wait_until(lock, due);
+            continue;
+        }
+        LateRead r = std::move(g_late.front());
+        g_late.pop_front();
+        lock.unlock();
+        IoStatus(r.iosb, r.status, r.n);
+        SetEvent(*r.file);
+        lock.lock();
+    }
+}
+
+uint32_t FinishLate(std::shared_ptr<File> f, uint32_t status, uint32_t n, uint32_t iosb) {
+    constexpr auto kDelay = std::chrono::milliseconds(2);
+    static std::once_flag started;
+    std::call_once(started, [] { std::thread(FinishLateReads).detach(); });
+    IoStatus(iosb, kPending, 0);
+    {
+        std::lock_guard<std::mutex> lock(g_late_lock);
+        g_late.push_back({std::chrono::steady_clock::now() + kDelay, std::move(f), iosb, status, n});
+    }
+    g_late_cv.notify_one();
+    return kPending;
 }
 
 static uint64_t Offset(File& f, uint32_t off) {
@@ -491,6 +544,7 @@ static uint32_t Transfer(const Args& a, bool write, uint32_t pages) {
     }
     f->pos = pos + n;
     if (write && n < len) return Finish(*f, 0xC000007F, n, event, apc, apc_ctx, iosb);  // disk full
+    if (!write && f->async && !event && !apc && iosb) return FinishLate(f, len && !n ? kEndOfFile : kSuccess, n, iosb);
     if (!write && len && !n) return Finish(*f, kEndOfFile, 0, event, apc, apc_ctx, iosb);
     return Finish(*f, kSuccess, n, event, apc, apc_ctx, iosb);
 }

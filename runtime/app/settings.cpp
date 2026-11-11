@@ -47,6 +47,7 @@ void Load() {
     s.width = t["width"].value_or(s.width);
     s.height = t["height"].value_or(s.height);
     s.render_percent = t["render_percent"].value_or(s.render_percent);
+    s.aspect = std::min(t["aspect"].value_or(s.aspect), kAspect16x9);
     s.fps_cap = t["fps_cap"].value_or(s.fps_cap);
     s.vsync = t["vsync"].value_or(s.vsync);
     s.aniso = t["anisotropic_filtering"].value_or(s.aniso);
@@ -71,6 +72,7 @@ toml::table Table() {
                   {"width", int64_t(s.width)},
                   {"height", int64_t(s.height)},
                   {"render_percent", int64_t(s.render_percent)},
+                  {"aspect", int64_t(s.aspect)},
                   {"fps_cap", int64_t(s.fps_cap)},
                   {"vsync", s.vsync},
                   {"anisotropic_filtering", int64_t(s.aniso)},
@@ -149,6 +151,9 @@ Mode CachedOutput() {
 
 // asked per frame and per HUD quad: CachedOutput costs a monitor lookup, the registry only on a change
 bool Widescreen() {
+    uint32_t aspect = Get().aspect;
+    if (aspect == kAspect4x3) return false;
+    if (aspect == kAspect16x9) return true;
     Mode m = CachedOutput();
     return m.width * 2 >= m.height * 3;  // 3:2 or wider
 }

@@ -15,11 +15,14 @@ namespace app {
 
 enum class DisplayMode : uint32_t { Fullscreen, Borderless, Windowed };
 inline constexpr uint32_t kFpsCapRefresh = 1;  // fps_cap: the monitor's refresh rate
+// aspect: auto follows the output's shape; 4:3 shows the frame pillarboxed and the console reports a 4:3 TV
+inline constexpr uint32_t kAspectAuto = 0, kAspect4x3 = 1, kAspect16x9 = 2;
 
 struct Settings {
     DisplayMode display_mode = DisplayMode::Borderless;
     uint32_t width = 0, height = 0;  // 0 is the desktop mode
     uint32_t render_percent = 100;   // of the output height
+    uint32_t aspect = 0;             // kAspectAuto, kAspect4x3 or kAspect16x9
     uint32_t fps_cap = 60;           // 0 unlimited, kFpsCapRefresh the monitor's refresh rate
     bool vsync = true;
     uint32_t aniso = 0;              // 0 as the game asks
@@ -42,7 +45,8 @@ struct Mode {
 Mode Desktop();
 Mode Output();
 float RenderScale(uint32_t guest_height);
-// the output is 3:2 or wider: the console reports a widescreen TV and the frame is shown 16:9, else 4:3 as on a 4:3 TV
+// the console reports a widescreen TV and the frame is shown 16:9, else 4:3 as on a 4:3 TV: the aspect setting, or
+// on auto an output 3:2 or wider
 bool Widescreen();
 
 std::filesystem::path ExeDir();

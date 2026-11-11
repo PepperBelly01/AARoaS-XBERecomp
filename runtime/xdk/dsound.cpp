@@ -8,13 +8,10 @@
 #include <deque>
 #include <map>
 #include <optional>
-#include <string_view>
 #include <vector>
 
 #include "audio/audio.h"
 #include "xbe/xbe.h"
-
-static std::atomic<int> g_diag_sound_lines{0};  // DIAGNOSTIC (AARoaS sound), remove after
 #include "xdk/hle.h"
 #include "xdk/dsp_image.h"
 #include "xdk/layout.h"
@@ -223,6 +220,7 @@ struct Voice {
     bool playing = false, looping = false, paused = false;
     bool sync = false;  // held until IDirectSound_SynchPlayback
     bool active = false, ending = false;  // stream: took a packet since it went quiet, quiet again once they run out
+    bool on = false;  // stream: its voice was started by Pause (resume, pause or synch pause) before any packet came
     // stream: an asynchronous FlushEx is under way, so packets submitted now come back flushed, unplayed, until the
     // title sets the stream up again (Pause, SetFormat, a plain flush)
     bool flushing = false;
@@ -635,7 +633,7 @@ float EarAt(const Voice& v, float delay) {
 // a stream goes quiet: the synch hold ends, a started one loses its pause as well
 void Deactivate(Voice& v) {
     v.sync = false;
-    if (v.active) v.active = v.paused = v.ending = false;
+    if (v.active || v.on) v.active = v.on = v.paused = v.ending = false;
 }
 
 // where a frame and the one after it are read from, for interpolation
@@ -792,22 +790,10 @@ void Render(float* out, uint32_t frames) {
             auto it = g_voices.find(v.output);
             if (it != g_voices.end() && it->second.mixin) sub = &it->second;
         }
-        if (v.stream && !sub && !v.packets.empty()) {  // DIAGNOSTIC (AARoaS missing dialogue), remove after
-            static std::map<uint32_t, bool> told;
-            if (!told[obj] && g_diag_sound_lines++ < 30000) {
-                told[obj] = true;
-                LOGR("diag dsound stream %08X plays without a submix (output %08X, %u bins, volume %.3f)", obj, v.output,
-                     uint32_t(v.nbins), v.volume);
-            }
-        }
         MixVoice(v, bins.data(), frames, sub);
     }
     for (auto& [obj, v] : g_voices) {
         if (!v.mixin || !v.fed || v.paused) continue;
-        {  // DIAGNOSTIC (AARoaS submixes), remove after: the first blocks a submix plays
-            static int n = 0;
-            if (n++ < 12) LOGR("diag dsound submix %08X plays, %u bins, 3d data %d", obj, uint32_t(v.nbins), v.use_data);
-        }
         MixVoice(v, bins.data(), frames);
     }
     if (dsp::Loaded()) dsp::Run(bins.data(), frames);
@@ -869,20 +855,6 @@ void SetBins(Voice& v, uint32_t mixbins) {
         v.bin_mb[v.bin[i]] = int32_t(R32(pairs + i * 8 + 4));
     }
     v.nbins = uint8_t(n);
-    {  // DIAGNOSTIC (AARoaS silent sounds), remove after: each distinct mix bin layout once
-        static std::map<std::string, int> seen;
-        char part[64];
-        std::snprintf(part, sizeof(part), "%s ch%u 3d%d bins", v.stream ? "stream" : "buffer", uint32_t(v.channels),
-                      int(v.is3d));
-        std::string key = part;
-        for (uint32_t i = 0; i < n; i++) {
-            std::snprintf(part, sizeof(part), " %u", uint32_t(v.bin[i]));
-            key += part;
-        }
-        static int calls = 0;
-        if (seen[key]++ == 0 || calls < 40) LOGR("diag dsound mixbins %08X %s", v.obj, key.c_str());
-        calls++;
-    }
 }
 // volumes only, the bins stay
 void SetBinVolumes(Voice& v, uint32_t mixbins) {
@@ -901,15 +873,6 @@ void ReadVoiceData(Voice& v, uint32_t data) {
     for (uint32_t bit = 0; bit < 8; bit++) {
         if (!(flags >> bit & 1)) continue;
         for (uint32_t k = kFirst[bit]; k < kFirst[bit] + kCount[bit]; k++) v.voice_data[k] = R32(data + k * 4);
-    }
-    {  // DIAGNOSTIC (AARoaS missing 3D sounds), remove after: an update that leaves a level below -30 dB
-        auto quiet = [&](uint32_t k) { return (flags & 0xFF) && int32_t(v.voice_data[k]) <= -3000; };
-        bool loud_ok = !(quiet(1) || quiet(2) || quiet(5) || quiet(7));
-        if (!loud_ok && g_diag_sound_lines++ < 30000)
-            LOGR("diag dsound 3D data %08X flags %X dist %d cone %d front %d centre %d direct %d room %d pitch %d az %.1f el %.1f use %d",
-                 v.obj, flags, int32_t(v.voice_data[1]), int32_t(v.voice_data[2]), int32_t(v.voice_data[5]),
-                 int32_t(v.voice_data[6]), int32_t(v.voice_data[7]), int32_t(v.voice_data[8]), int32_t(v.voice_data[9]),
-                 std::bit_cast<float>(v.voice_data[10]), std::bit_cast<float>(v.voice_data[11]), v.use_data);
     }
 }
 
@@ -958,10 +921,6 @@ uint32_t NewBuffer(uint32_t desc, uint32_t out) {
     if (bytes) {
         v.data = v.owned = mem::AllocContiguous(bytes, 0, 0xFFFFFFFF, 4);
         v.bytes = v.play_len = v.loop_len = bytes;
-    }
-    {  // DIAGNOSTIC (AARoaS missing 3D sounds), remove after
-        if (g_diag_sound_lines++ < 30000)
-            LOGR("diag dsound new buffer %08X flags %X bytes %u channels %u 3d %d", obj, flags, bytes, v.channels, v.is3d);
     }
     W32(out, obj);
     return 0;
@@ -1254,29 +1213,10 @@ HLE_STDCALL(IDirectSound_GetOutputLevels, 3) {
 HLE_STDCALL(DirectSoundCreateBuffer, 2) { return NewBuffer(a[0], a[1]); }
 HLE_STDCALL(IDirectSound_CreateSoundBuffer, 4) { return NewBuffer(a[1], a[2]); }
 
-// DIAGNOSTIC (AARoaS missing 3D sounds, dialogue not stopping), remove after: for the whole session, the calls that
-// start, stop or end a voice, and a volume that makes one nearly silent; capped at 30000 lines (g_diag_sound_lines)
-bool DiagSoundWanted(std::string_view name, uint32_t a1) {
-    static const std::string_view kEvents[] = {"Play", "Stop", "StopEx", "Pause", "PauseEx", "Flush", "FlushEx",
-                                               "Discontinuity", "Release", "Use3DVoiceData", "SetOutputBuffer"};
-    std::string_view method = name.substr(name.find(' ') + 1);
-    bool event = false;
-    for (auto e : kEvents) event |= method == e;
-    if (method == "SetVolume") event = int32_t(a1) <= -6000;
-    return event && g_diag_sound_lines++ < 30000;
-}
-#define DIAG_SOUND_CALL(label, nargs)                                                                                 \
-    do {                                                                                                         \
-        if (DiagSoundWanted(label, (nargs) > 1 ? a[1] : 0))                                                      \
-            LOGR("diag dsound %s %08X (%08X %08X %08X)", label, a[0], (nargs) > 1 ? a[1] : 0, (nargs) > 2 ? a[2] : 0, \
-                 (nargs) > 3 ? a[3] : 0);                                                                        \
-    } while (0)
-
 #define BUFFER(name, nargs)                                 \
     static uint32_t buf_##name(Voice& v, const Args& a);    \
     HLE_STDCALL(IDirectSoundBuffer_##name, nargs) {         \
         std::lock_guard<std::recursive_mutex> lock(g_lock); \
-        DIAG_SOUND_CALL("buf " #name, nargs);               \
         Voice* v = Find(a[0]);                              \
         return v ? buf_##name(*v, a) : 0x80004005u;         \
     }                                                       \
@@ -1494,7 +1434,6 @@ HLE_STDCALL(IDirectSound_CreateSoundStream, 4) { return NewStream(a[1], a[2]); }
         std::vector<Done> flushed;                              \
         {                                                       \
             std::lock_guard<std::recursive_mutex> lock(g_lock); \
-            DIAG_SOUND_CALL("str " #name, nargs);               \
             Voice* v = Find(a[0]);                              \
             r = v ? str_##name(*v, a) : 0x80004005u;            \
             flushed.swap(t_flushed);                            \
@@ -1548,8 +1487,16 @@ STREAM(GetInfo, 2) {
     W32(info + 12, 0);
     return 0;
 }
+// DSSTREAMSTATUS: READY 1 (takes a packet), PLAYING 0x10000 (the voice is on), PAUSED 0x20000, STARVED 0x40000 (on,
+// no packets left). XACT ends a streamed cue once PLAYING drops, and checks it before its first packet goes in.
 STREAM(GetStatus, 2) {
-    W32(a[1], v.packets.size() < v.max_packets ? 1u : 0u);  // XMEDIASTATUS_ACCEPT_INPUT
+    uint32_t s = v.packets.size() < v.max_packets ? 1u : 0u;
+    if (v.active || v.on) {
+        s |= 0x10000;
+        if (v.paused) s |= 0x20000;
+        if (v.packets.empty()) s |= 0x40000;
+    }
+    W32(a[1], s);
     return 0;
 }
 STREAM(Process, 3) {
@@ -1588,17 +1535,21 @@ STREAM(FlushEx, 4) {
     FlushStream(v, a[3] & 1);
     return 0;
 }
-STREAM(Pause, 2) {
+// DSSTREAMPAUSE: 0 resume, 1 pause, 2 synch pause (held for SynchPlayback), 3 pause without starting the voice.
+// The first three start the voice, so the stream reports PLAYING even before its first packet.
+static void SetStreamPause(Voice& v, uint32_t mode) {
     v.flushing = false;  // XACT sets a stream up for its next cue with Pause
-    v.paused = a[1] == 1;
-    v.sync = a[1] == 2;
+    v.paused = mode == 1 || mode == 3;
+    v.sync = mode == 2;
+    if (mode != 3) v.on = true;
+}
+STREAM(Pause, 2) {
+    SetStreamPause(v, a[1]);
     return 0;
 }
 // (this, time low, time high, flags): takes effect now, the timestamp is not honored
 STREAM(PauseEx, 4) {
-    v.flushing = false;
-    v.paused = a[3] == 1;
-    v.sync = a[3] == 2;
+    SetStreamPause(v, a[3]);
     return 0;
 }
 STREAM(SetVolume, 2) {
