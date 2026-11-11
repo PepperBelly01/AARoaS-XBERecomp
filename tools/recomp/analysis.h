@@ -42,6 +42,7 @@ struct Config {
     std::map<std::string, std::vector<std::string>> abi;  // where a symbol takes each argument, emitted as IMAGE_ABI
     std::set<uint32_t> no_gap_fill;             // section starts to skip in gap fill
     std::vector<std::pair<uint32_t, uint32_t>> data_ranges;  // data inside code sections
+    std::set<uint32_t> continuations;  // [xbe] continuations: jumped back to with an older esp (setjmp returns)
     bool gap_fill = true;
     bool pointer_seeds = true;
     std::multimap<uint32_t, Hook> hooks;

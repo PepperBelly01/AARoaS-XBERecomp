@@ -542,6 +542,11 @@ void Analysis::Run() {
         }
     }
     EhContinuations();
+    for (uint32_t c : cfg.continuations) {
+        MakeFunction(c);
+        if (functions.count(c)) continuations.insert(c);
+        else std::fprintf(stderr, "[xbe] continuations: %08X is not code\n", c);
+    }
     // every direct call from decoded code names a function
     for (bool changed = true; changed;) {
         changed = false;

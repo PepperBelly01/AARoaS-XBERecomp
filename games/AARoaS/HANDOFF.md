@@ -151,6 +151,15 @@ automatically through `../../cmake/XbeRecomp.cmake`; no `sdk\` copy is needed.
 - Left alone on purpose: many unnamed D3D helpers the game calls (resource/lock/XG code that stays recompiled).
   Name one only when a crash leads there; check first whether it reads device fields the host's HLE doesn't keep.
 - User played: first mission completed, second started; controls, audio and performance good.
+- **Crash after spending upgrade points** (2026-11-11): the game's only setjmp (0x38BCE0, returning to 0x3776B9 in
+  0x377680, a Lua-style protected call) is longjmp'd to after a script error; 0x3776B9 was no entry. Fix: new
+  recompiler option `[xbe] continuations = [...]` (tools\recomp main.cpp, analysis.cpp) makes it an entry and a
+  continuation, and codegen_emit.cpp now gives the try/X86Resume wrapper to a function that holds or falls into a
+  continuation. Set in game.toml. Not yet confirmed by the user (needs their save at that screen). If it still fails,
+  the script error itself may be a real bug to chase.
+- **Dialogue sometimes silent**: 0x45C836 is `IDirectSoundBuffer_Use3DVoiceData` (XACT's buffer path at 0x453DB4,
+  twin of the stream call at 0x453D74), not a stream adjuster: it had been a no-op, so buffers never took XACT's 3D
+  voice data. Now named in game.toml; the no-op hook is gone. Not yet confirmed by the user.
 - Overlay: the title/ESRB screens are near-still XMVs (~8 fps, uneven gaps), which flickered with the 250 ms
   timeout. The ESRB movie holds its still picture ~3 s without frames, so any timeout flickers. Now the overlay stays
   on from UpdateOverlay until EnableOverlay(FALSE), no timeout; the log confirms the game calls EnableOverlay(0) at

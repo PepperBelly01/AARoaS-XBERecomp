@@ -9,6 +9,9 @@ out = "generated/game"
 partitions = 128
 code_sections = [".text", "D3D", "D3DX", "XGRPH", "XONLINE", "XNET", "XMV", "XACTENG", "DSOUND", "WMADEC", "XPP"]
 library = "AARoaS.dll"  # <exe>.dll, which the executable delay loads
+# the only setjmp (0x38BCE0) in the image returns here; longjmp comes back to it after a script error
+# (0x377680 saves the previous handler at [obj+0x50], a protected call in the style of Lua's)
+continuations = [0x3776B9]
 
 # extra entry points
 [functions]
@@ -52,6 +55,7 @@ IDirectSoundBuffer_SetPitch                          = 0x45C69E
 IDirectSoundBuffer_SetLFO                            = 0x45C6BA
 IDirectSoundBuffer_GetVoiceProperties                = 0x45C7FE
 IDirectSoundBuffer_Set3DVoiceData                    = 0x45C81A
+IDirectSoundBuffer_Use3DVoiceData                    = 0x45C836  # XACT's buffer path at 0x453DB4, twin of the stream call at 0x453D74
 CDirectSoundStream_SetPitch                          = 0x45C857
 CDirectSoundStream_SetLFO                            = 0x45C85C
 CDirectSoundStream_GetVoiceProperties                = 0x45C892

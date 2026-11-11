@@ -91,15 +91,6 @@ X86_FUNC(sub_000EE130) {
     ctx.esp += 4;  // ret
 }
 
-// IDirectSoundStream adjuster (this - 0x1C) -> 0x45C266 -> the voice's Use3DVoiceData flag (0x45B551), ret 8.
-// xbe_symbols left it unnamed and the runtime has no IDirectSoundStream-side name for it; the original reads the
-// library's own voice, which the runtime's streams don't have. The flag has no effect here, so it just succeeds.
-// The other unnamed voice calls XACT makes are named by hand in config\game.toml.
-X86_FUNC(sub_0045C836) {
-    ctx.eax = 0;
-    ctx.esp += 4 + 8;
-}
-
 // XOnlineGetUsers(XONLINE_USER users[8], DWORD* count), stdcall, ret 8: the accounts stored on the console.
 // The runtime's XOnlineStartup is a stub, so the library's own code finds its state null and returns
 // XONLINE_E_NOT_INITIALIZED (0x80150005); UIX's startup (0x34DBD3) treats that as fatal and the game then writes

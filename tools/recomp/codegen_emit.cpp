@@ -103,6 +103,10 @@ std::string CodeGen::EmitFunction(uint32_t entry) {
             ops[0].mem.segment == ZYDIS_REGISTER_FS && ops[0].mem.base == ZYDIS_REGISTER_NONE &&
             ops[0].mem.index == ZYDIS_REGISTER_NONE && ops[0].mem.disp.value == 0)
             seh = true;
+        // so may one that holds or falls into a continuation without a frame of its own (the return of its setjmp
+        // call, which is then an entry of its own that this function continues into)
+        if (an_.continuations.count(va) && va != entry) seh = true;
+        if (const Insn* i = an_.InsnAt(va); i && an_.continuations.count(va + i->len)) seh = true;
     }
     std::string out;
     out += F("X86_FUNC(__imp__%s) {\n", FuncName(entry).c_str());

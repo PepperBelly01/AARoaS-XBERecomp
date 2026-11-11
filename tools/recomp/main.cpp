@@ -42,6 +42,9 @@ static bool ParseExit(const toml::node* n, Hook::Exit& e) {
 
 // Keys beyond [xbe], [functions], [symbols], [data] and [layout]:
 //   [xbe] data_ranges = [[lo, hi], ...]  bytes in code sections that are never code, hi exclusive
+//   [xbe] continuations = [address, ...]  places jumped back to from deeper code with that frame's esp, such as the
+//     instruction after a setjmp call that longjmp returns to; each becomes an entry that unwinds the host stack
+//     like a C++ catch continuation
 //   [xbe] trace = [address, ...]  log each call of these functions (caller, arguments) and its eax
 //   [[hook]] at, call, after, on_true, on_false  call a host function before or after a guest instruction;
 //     on_true/on_false make it return bool and name "ret" or an instruction of the same function to jump to
@@ -102,6 +105,9 @@ static bool LoadConfig(const fs::path& path, Config& cfg, const fs::path& xdk_di
             if (auto r = i.as_array(); r && r->size() == 2)
                 cfg.data_ranges.push_back({uint32_t(r->get(0)->value<int64_t>().value_or(0)),
                                            uint32_t(r->get(1)->value<int64_t>().value_or(0))});
+    if (auto a = t["xbe"]["continuations"].as_array())
+        for (auto& i : *a)
+            if (auto v = i.value<int64_t>()) cfg.continuations.insert(uint32_t(*v));
     if (auto f = t["functions"].as_table())
         for (auto& [k, v] : *f) cfg.functions[ParseAddr(k.str())] = v.value<std::string>().value_or("");
     for (auto [key, out] : {std::pair{"symbols", &cfg.symbols}, std::pair{"data", &cfg.data}, std::pair{"names", &cfg.names}})
