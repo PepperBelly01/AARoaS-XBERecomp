@@ -178,7 +178,9 @@ Mouse and keyboard, 16:9 widescreen, resolutions up to 4K, FoV, SMAA, ambient oc
   port pieces by adapting them, not by copying files over.
 - Generic parts (overlay, SMAA, resolution) belong in the SDK. Game parts (FoV, mouse look, 16:9 HUD) need this
   game's own addresses: both games are Unreal Engine 2, so the reference's approach carries over, its addresses don't.
-- The project folder is not a git repository: set one up before starting feature work.
+- Version control: local git repository at the SDK root (branch `main`, first commit f61e420, 2026-11-10), placeholder
+  author "AA-RoaS Recomp <aaroas@localhost>" set for this repo only, no remote. Not tracked: `Game\`, `Reference\`,
+  `generated\`, `out\`, captures and logs (see the two .gitignore files). Never push game data anywhere.
 
 ## The user's preferences
 
