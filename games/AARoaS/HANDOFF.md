@@ -208,8 +208,22 @@ automatically through `../../cmake/XbeRecomp.cmake`; no `sdk\` copy is needed.
 - **Skip Intros** (`src\game\intro.cpp`): the four boot movies (table 0x5EDA70) are each a call of 0x300470; the
   per-frame 0x2F4540 returns 0 for them.
 
+- **SMAA** (`d3d12.cpp` Smaa, iryoku/smaa MIT in smaa_shader.h / smaa_textures.h): three full screen passes over
+  the shown frame before the blit.
+- **MSAA** (Settings::msaa 2/4/8): back buffer sized targets and their depth are multisampled (Target::samples).
+  Every read goes through `Single(t, state)`: a one sample copy made again once drawn since (colour by
+  ResolveSubresource, depth by drawing sample 0 with kDepthMsHlsl). Pipelines, blits and clears take the target's
+  sample count; copies into a multisampled target are drawn. Applied at the first present (the device is made
+  after LoadSettings). `run_debug.bat` (XBE_D3D12_DEBUG) copies the debug layer's errors into the log.
+- **2D placement, both kinds**: screen space (XYZRHW, a briefing's text is a draw a letter) and canvas draws go
+  through one `Decide` in draw order: a frame whose first 2D draw spans the width is a menu over the 3D view
+  (pause, briefing, objectives) and stays 4:3 centred, not hidden; else runs of touching draws (a word space
+  across) take one anchor, matched to last frame by box so typed out text does not flicker.
+- **Frame rate**: GameInfo::max_fps = 60. Weapon recoil (and maybe more) is applied per frame: at 200 FPS it threw
+  the view. The user wants uncapped frame rates later: find the recoil code and scale it by frame time.
+
 ## Future: PC features the user wants (paused 2026-11-10)
-Still to do: mouse and keyboard (needs this game's camera input), SMAA, ambient occlusion, a controller combo to
+Still to do: frame rate independent recoil and timing (then lift max_fps), mouse and keyboard (needs this game's camera input), SMAA, ambient occlusion, a controller combo to
 open the overlay, overlay navigation for non-Xbox pads (ImGui's backend reads XInput pad 0 only).
 
 Mouse and keyboard, 16:9 widescreen, resolutions up to 4K, FoV, SMAA, ambient occlusion, and a settings overlay.

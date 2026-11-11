@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstring>
 #include <numeric>
+#include <unordered_map>
 #include <vector>
 
 #include "app/app.h"
@@ -37,9 +38,31 @@ uint32_t Find(std::vector<uint32_t>& parent, uint32_t i) {
 // thread) are cut into runs, a draw that touches the run so far joining it; the next frame places the draw at the
 // same position in the order, where its box still matches, by its run's centre. A changed layout is placed draw by
 // draw for its first frame.
-std::vector<Box> g_drawn;            // this frame's canvas draws in order
-std::vector<Box> g_last;             // last frame's
-std::vector<Canvas> g_last_anchor;   // and the anchor of each one's run
+// A draw is matched to last frame's by its box, not its place in the order: text typed out letter by letter adds
+// draws each frame. A draw with no match that touches the run being drawn joins it at once.
+std::vector<Box> g_drawn;                          // this frame's canvas draws in order
+std::unordered_map<uint64_t, Canvas> g_last;       // last frame's, by box, the anchor of each one's run
+// this frame so far: any canvas draw yet, the first was across the screen (the dimmed layer of a pause menu or
+// briefing over the 3D view: the frame is a menu, all of it kept 4:3 about the centre), the run being drawn
+bool g_any = false, g_menu = false, g_in_run = false;
+Box g_run{};
+Canvas g_run_anchor = Canvas::Centre;
+// clip space (the frame is 2 across): a run takes a draw this near it, a word space across, touching up and down
+constexpr float kGapX = 0.06f, kGapY = 0.02f;
+
+bool Touches(const Box& p, const Box& q) {
+    return q.x0 <= p.x1 + kGapX && p.x0 <= q.x1 + kGapX && q.y0 <= p.y1 + kGapY && p.y0 <= q.y1 + kGapY;
+}
+
+Box Join(const Box& p, const Box& q) {
+    return {std::min(p.x0, q.x0), std::min(p.y0, q.y0), std::max(p.x1, q.x1), std::max(p.y1, q.y1)};
+}
+
+// a box to 1/400 of the frame, as a key
+uint64_t BoxKey(const Box& b) {
+    auto q = [](float v) { return uint64_t(uint16_t(int16_t(std::lround(v * 200)))); };
+    return q(b.x0) | q(b.y0) << 16 | q(b.x1) << 32 | q(b.y1) << 48;
+}
 
 Canvas AnchorOf(const Box& b) {
     float centre = (b.x0 + b.x1) * 0.5f;
@@ -47,24 +70,44 @@ Canvas AnchorOf(const Box& b) {
 }
 
 void GroupDrawn() {
-    constexpr float kGap = 0.01f;  // clip space: about half a percent of the frame
     size_t n = g_drawn.size();
-    g_last_anchor.assign(n, Canvas::Centre);
+    g_last.clear();
     for (size_t start = 0; start < n;) {
         Box run = g_drawn[start];
         size_t end = start + 1;
-        for (; end < n; end++) {
-            const Box& q = g_drawn[end];
-            bool touches = q.x0 <= run.x1 + kGap && run.x0 <= q.x1 + kGap && q.y0 <= run.y1 + kGap && run.y0 <= q.y1 + kGap;
-            if (!touches) break;
-            run = {std::min(run.x0, q.x0), std::min(run.y0, q.y0), std::max(run.x1, q.x1), std::max(run.y1, q.y1)};
-        }
+        for (; end < n && Touches(run, g_drawn[end]); end++) run = Join(run, g_drawn[end]);
         Canvas anchor = AnchorOf(run);
-        for (size_t i = start; i < end; i++) g_last_anchor[i] = anchor;
+        for (size_t i = start; i < end; i++) g_last[BoxKey(g_drawn[i])] = anchor;
         start = end;
     }
-    g_last.swap(g_drawn);
     g_drawn.clear();
+    g_any = g_menu = g_in_run = false;
+}
+
+// One element of a 3D frame's 2D, its box in clip space (y up), as it comes in the order: where it goes. Both kinds
+// of 2D come through here in draw order, canvas draws and screen space ones (a briefing's text is a draw a letter).
+Canvas Decide(const Box& b, bool hide, bool wide) {
+    bool first = !g_any;
+    g_any = true;
+    if (b.x1 - b.x0 >= 2 * kFill) {  // across the screen: fades, flashes, overlays still fill it
+        if (first) g_menu = true;
+        return Canvas::Keep;
+    }
+    if (g_menu) return wide ? Canvas::Centre : Canvas::Keep;  // a menu over the 3D view: as made, hidden or not
+    if (hide) return Canvas::Hide;
+    if (!wide) return Canvas::Keep;
+    if (g_drawn.size() < kMaxGroups) g_drawn.push_back(b);
+    // the same draw last frame: its run's anchor; new, touching the run being drawn: that run's; else its own
+    Canvas anchor;
+    auto last = g_last.find(BoxKey(b));
+    bool joins = g_in_run && Touches(g_run, b);
+    if (last != g_last.end()) anchor = last->second;
+    else if (joins) anchor = g_run_anchor;
+    else anchor = AnchorOf(b);
+    g_run = joins ? Join(g_run, b) : b;
+    if (!joins) g_run_anchor = anchor;
+    g_in_run = true;
+    return anchor;
 }
 
 }  // namespace
@@ -85,8 +128,8 @@ bool Frame3D() {
 
 bool Place(const State& s, Assembled& out, int k) {
     if (!Frame3D()) return true;  // a menu or movie frame: shown 4:3 as made
-    if (app::Get().hide_hud) return false;
-    if (!app::Widescreen()) return true;
+    bool hide = app::Get().hide_hud, wide = app::Widescreen();
+    if (!hide && !wide) return true;
     uint32_t n = out.vertex_count, regs = uint32_t(std::popcount(out.regs));
     if (!n || !regs) return true;
     auto x = [&](uint32_t v) -> float& { return out.vertices[(size_t(v) * regs + k) * 4]; };
@@ -134,11 +177,31 @@ bool Place(const State& s, Assembled& out, int k) {
             }
     }
     std::vector<Box> span(pieces, Box{1e30f, 1e30f, -1e30f, -1e30f});
+    size_t groups = 0;
     for (size_t p = 0; p < pieces; p++) {
+        if (Find(group, uint32_t(p)) == p) groups++;
         Box& g = span[Find(group, uint32_t(p))];
         g.x0 = std::min(g.x0, boxes[p].x0);
         g.x1 = std::max(g.x1, boxes[p].x1);
+        g.y0 = std::min(g.y0, boxes[p].y0);
+        g.y1 = std::max(g.y1, boxes[p].y1);
     }
+
+    // one element (a letter, an icon): placed with the frame's other 2D, in clip space
+    if (groups == 1) {
+        const Box& g = span[Find(group, 0)];
+        Box c{(g.x0 - vx) / vw * 2 - 1, 1 - (g.y1 - float(s.viewport.y)) / vh * 2, (g.x1 - vx) / vw * 2 - 1,
+              1 - (g.y0 - float(s.viewport.y)) / vh * 2};
+        Canvas d = Decide(c, hide, wide);
+        if (d == Canvas::Hide) return false;
+        if (d != Canvas::Left && d != Canvas::Centre && d != Canvas::Right) return true;
+        float at = d == Canvas::Left ? vx : d == Canvas::Right ? vx + vw : vx + vw / 2;
+        for (uint32_t v = 0; v < n; v++) x(v) = at + (x(v) - at) * kNarrow;
+        return true;
+    }
+    // several (a batched layer): each group placed by itself
+    if (hide && !g_menu) return false;
+    if (!wide) return true;
 
     // each group narrowed about its anchor: the screen side it sits nearer, or the centre
     std::vector<float> anchor(pieces, 0);
@@ -151,7 +214,7 @@ bool Place(const State& s, Assembled& out, int k) {
             continue;
         }
         float centre = (g.x0 + g.x1) * 0.5f - vx;
-        anchor[p] = centre < vw / 3 ? vx : centre > vw * 2 / 3 ? vx + vw : vx + vw / 2;
+        anchor[p] = g_menu ? vx + vw / 2 : centre < vw / 3 ? vx : centre > vw * 2 / 3 ? vx + vw : vx + vw / 2;
     }
     for (uint32_t v = 0; v < n; v++) {
         uint32_t g = Find(group, group_of_root[root_of[v]]);
@@ -230,19 +293,7 @@ Canvas Classify(const State& s, const Assembled& a) {
         b.y1 = std::max(b.y1, cy / cw);
     }
     if (b.x0 > b.x1) return Canvas::Keep;
-    if (b.x1 - b.x0 >= 2 * kFill) return Canvas::Keep;  // across the screen: fades, flashes, overlays still fill it
-    if (hide) return Canvas::Hide;
-    // the same draw last frame: its run's anchor, else its own
-    size_t at = g_drawn.size();
-    if (at < kMaxGroups) g_drawn.push_back(b);
-    constexpr float kSame = 0.02f;
-    if (at < g_last.size()) {
-        const Box& l = g_last[at];
-        if (std::fabs(l.x0 - b.x0) < kSame && std::fabs(l.x1 - b.x1) < kSame && std::fabs(l.y0 - b.y0) < kSame &&
-            std::fabs(l.y1 - b.y1) < kSame)
-            return g_last_anchor[at];
-    }
-    return AnchorOf(b);
+    return Decide(b, hide, wide);
 }
 
 void Narrow(Canvas anchor, float m[16]) {

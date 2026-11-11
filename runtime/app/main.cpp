@@ -240,6 +240,7 @@ void Pace() {
     static clock::time_point next = clock::now();
     uint32_t cap = Get().fps_cap;
     if (cap == kFpsCapRefresh) cap = RefreshRate();
+    if (kGame.max_fps && (!cap || cap > kGame.max_fps)) cap = kGame.max_fps;
     auto now = clock::now();
     if (!cap) {
         next = now;

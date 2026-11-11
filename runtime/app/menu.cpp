@@ -144,16 +144,18 @@ void DrawDisplay() {
     }
 
     uint32_t cap = s.fps_cap;
-    if (Pick("Max Frame Rate", cap, {{kFpsCapRefresh, "Monitor refresh rate"},
-                                     {30, "30"},
-                                     {60, "60"},
-                                     {120, "120"},
-                                     {144, "144"},
-                                     {165, "165"},
-                                     {240, "240"},
-                                     {0, "Unlimited"}})) {
+    std::vector<Choice> caps = {{kFpsCapRefresh, "Monitor refresh rate"}};
+    for (uint32_t f : {30u, 60u, 120u, 144u, 165u, 240u})
+        if (!kGame.max_fps || f <= kGame.max_fps) caps.push_back({f, std::to_string(f)});
+    if (!kGame.max_fps) caps.push_back({0, "Unlimited"});
+    if (Pick("Max Frame Rate", cap, caps)) {
         s.fps_cap = cap;
         Save();
+    }
+    if (kGame.max_fps) {
+        char text[96];
+        std::snprintf(text, sizeof(text), "This game's timing (recoil and more) only holds up to %u FPS.", kGame.max_fps);
+        Hint(text);
     }
     if (ImGui::Checkbox("V-Sync", &s.vsync)) Save();
     if (ImGui::Checkbox("FPS Counter", &s.fps_counter)) Save();
@@ -168,6 +170,9 @@ void DrawGraphics() {
     Settings& s = Get();
     ImGui::SeparatorText("Graphics");
     if (Pick("Anisotropic Filtering", s.aniso, {{0, "Game default"}, {2, "2x"}, {4, "4x"}, {8, "8x"}, {16, "16x"}})) Save();
+    if (Pick("MSAA", s.msaa, {{0, "Off"}, {2, "2x"}, {4, "4x"}, {8, "8x"}})) Save();
+    Hint("Multisampling smooths the edges of 3D shapes while keeping the image sharp. It does not smooth alpha "
+         "tested edges (fences, foliage); SMAA does, and the two combine.");
     if (ImGui::Checkbox("SMAA", &s.smaa)) Save();
     Hint("Smooths jagged edges over the whole picture, HUD included, alpha tested fences and foliage too. "
          "Slightly softer image.");
