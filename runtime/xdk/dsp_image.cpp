@@ -432,6 +432,11 @@ void Load(const std::vector<uint8_t>& img, size_t table, const std::vector<uint3
             std::vector<uint8_t> code(img.begin() + code_at, img.begin() + code_at + code_bytes);
             Decrypt(&keys[i * kKeyBytes], code.data(), code.size());
             e.kind = KindOf(CodeHash(code));
+            // DIAGNOSTIC (AARoaS 3D sounds silent), remove after: each effect's size, hash and first state words
+            std::string words;
+            for (uint32_t w = 0; w < 10 && states[i]; w++) words += " " + std::to_string(kernel::R32(states[i] + w * 4));
+            LOGR("diag dsp effect %u: %u words hash %016llX %s state %08X:%s", i, code_bytes / 4,
+                 (unsigned long long)CodeHash(code), KindName(e.kind), states[i], words.c_str());
         }
         kinds += " " + std::to_string(i) + " " + KindName(e.kind) + ",";
         g_effects.push_back(e);

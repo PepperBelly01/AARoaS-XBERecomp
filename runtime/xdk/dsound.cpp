@@ -8,10 +8,13 @@
 #include <deque>
 #include <map>
 #include <optional>
+#include <string_view>
 #include <vector>
 
 #include "audio/audio.h"
 #include "xbe/xbe.h"
+
+static std::atomic<int> g_diag_sound_lines{0};  // DIAGNOSTIC (AARoaS sound), remove after
 #include "xdk/hle.h"
 #include "xdk/dsp_image.h"
 #include "xdk/layout.h"
@@ -238,6 +241,15 @@ struct Voice {
     float p[3] = {}, min_dist = 1, max_dist = 1e9f;
     Gains gain = {};  // the last block's gains, the next block ramps from them
     bool has_gain = false;
+    // Submixes: a DSBCAPS_MIXIN buffer plays what the voices whose output buffer it is send it, each block, in
+    // place of data of its own (XACT's 3D voices: the sources send their dry sound to a submix that carries the 3D
+    // mix bins, and their reverb and LFE sends through their own bins)
+    bool mixin = false;
+    bool fed = false;            // a submix: something was sent to it this block
+    std::vector<float> sub_in;   // a submix: this block's input, frames x its channels
+    uint32_t output = 0;         // a source: the submix its dry sound also goes to (SetOutputBuffer), 0 for none
+    float dry = 0;               // a source: the last block's level into its submix
+    bool has_dry = false;
     // a mono 3D voice's interaural delay in samples and its recent samples
     float itd = 0;
     float ear[kEarLength] = {};
@@ -683,8 +695,16 @@ std::optional<Cursor> BufferFrame(Voice& v) {
     return at;
 }
 
-// adds the voice to the bins, frames of kBins interleaved, its levels ramped across the block
-void MixVoice(Voice& v, float* bins, uint32_t frames) {
+// a source's level into its submix: its volume and headroom, and the direct path level of the title's 3D pass
+float DryGain(const Voice& v) {
+    float g = v.volume * v.headroom;
+    if (v.use_data) g *= Db(int32_t(v.voice_data[kDataDirect]));
+    return g;
+}
+
+// adds the voice to the bins, frames of kBins interleaved, its levels ramped across the block; with sub, its dry
+// sound to that submix's input as well. A submix reads its input in place of data.
+void MixVoice(Voice& v, float* bins, uint32_t frames, Voice* sub = nullptr) {
     Place at = Locate(v);
     Gains target = Levels(v, at);
     float itd = Itd(at.azimuth);
@@ -701,17 +721,37 @@ void MixVoice(Voice& v, float* bins, uint32_t frames) {
     for (const Lane& lane : lanes) {
         if (lane.row < kMaxChannels) read |= 1u << lane.row;
     }
+    uint32_t sub_channels = sub ? std::max<uint32_t>(std::min<uint32_t>(sub->channels, kMaxChannels), 1) : 0;
+    float dry_to = sub ? DryGain(v) : 0;
+    if (!v.has_dry) v.dry = dry_to;
+    float dry_step = (dry_to - v.dry) / float(frames);
+    if (sub) read |= (1u << channels) - 1;
     double rate = double(v.freq ? v.freq : v.rate) / audio::kRate;
     v.block[v.last ^ 1] = -1;  // the title may have rewritten that block's memory since the last mix
     for (uint32_t i = 0; i < frames; i++) {
-        std::optional<Cursor> cursor = v.stream ? StreamFrame(v) : BufferFrame(v);
-        if (!cursor) break;
-        float t = float(v.pos - cursor->f);
         float row[kRows] = {};
-        for (uint32_t c = 0; c < channels; c++) {
-            if (!(read >> c & 1)) continue;
-            float x = Sample(v, cursor->data, cursor->f, int(c));
-            row[c] = x + (Sample(v, cursor->next_data, cursor->next_f, int(c)) - x) * t;
+        if (v.mixin) {
+            if (v.sub_in.size() < size_t(frames) * channels) break;
+            for (uint32_t c = 0; c < channels; c++) row[c] = v.sub_in[size_t(i) * channels + c];
+        } else {
+            std::optional<Cursor> cursor = v.stream ? StreamFrame(v) : BufferFrame(v);
+            if (!cursor) break;
+            float t = float(v.pos - cursor->f);
+            for (uint32_t c = 0; c < channels; c++) {
+                if (!(read >> c & 1)) continue;
+                float x = Sample(v, cursor->data, cursor->f, int(c));
+                row[c] = x + (Sample(v, cursor->next_data, cursor->next_f, int(c)) - x) * t;
+            }
+        }
+        if (sub) {
+            v.dry += dry_step;
+            float* in = &sub->sub_in[size_t(i) * sub_channels];
+            for (uint32_t c = 0; c < sub_channels; c++) {
+                // a mono submix takes the channels' average, a wider one each channel (the last for the rest)
+                float x = sub_channels == 1 && channels > 1 ? (row[0] + row[1]) * 0.5f : row[std::min(c, channels - 1)];
+                in[c] += x * v.dry;
+            }
+            sub->fed = true;
         }
         if (ears) {
             v.itd += itd_step;
@@ -728,14 +768,35 @@ void MixVoice(Voice& v, float* bins, uint32_t frames) {
     }
     v.gain = target;
     v.itd = itd;
+    v.dry = dry_to;
+    v.has_dry = sub != nullptr;
 }
 
 void Render(float* out, uint32_t frames) {
     static std::vector<float> bins;  // the output thread alone renders
     bins.assign(size_t(frames) * kBins, 0.0f);
     std::lock_guard<std::recursive_mutex> lock(g_lock);
+    // submixes start each block empty; the voices feeding them mix first, then the submixes play what they got
     for (auto& [obj, v] : g_voices) {
-        if (v.paused || v.sync || (!v.stream && !v.playing)) continue;
+        if (!v.mixin) continue;
+        v.sub_in.assign(size_t(frames) * std::max<uint32_t>(std::min<uint32_t>(v.channels, kMaxChannels), 1), 0.0f);
+        v.fed = false;
+    }
+    for (auto& [obj, v] : g_voices) {
+        if (v.mixin || v.paused || v.sync || (!v.stream && !v.playing)) continue;
+        Voice* sub = nullptr;
+        if (v.output) {
+            auto it = g_voices.find(v.output);
+            if (it != g_voices.end() && it->second.mixin) sub = &it->second;
+        }
+        MixVoice(v, bins.data(), frames, sub);
+    }
+    for (auto& [obj, v] : g_voices) {
+        if (!v.mixin || !v.fed || v.paused) continue;
+        {  // DIAGNOSTIC (AARoaS submixes), remove after: the first blocks a submix plays
+            static int n = 0;
+            if (n++ < 12) LOGR("diag dsound submix %08X plays, %u bins, 3d data %d", obj, uint32_t(v.nbins), v.use_data);
+        }
         MixVoice(v, bins.data(), frames);
     }
     if (dsp::Loaded()) dsp::Run(bins.data(), frames);
@@ -797,6 +858,20 @@ void SetBins(Voice& v, uint32_t mixbins) {
         v.bin_mb[v.bin[i]] = int32_t(R32(pairs + i * 8 + 4));
     }
     v.nbins = uint8_t(n);
+    {  // DIAGNOSTIC (AARoaS silent sounds), remove after: each distinct mix bin layout once
+        static std::map<std::string, int> seen;
+        char part[64];
+        std::snprintf(part, sizeof(part), "%s ch%u 3d%d bins", v.stream ? "stream" : "buffer", uint32_t(v.channels),
+                      int(v.is3d));
+        std::string key = part;
+        for (uint32_t i = 0; i < n; i++) {
+            std::snprintf(part, sizeof(part), " %u", uint32_t(v.bin[i]));
+            key += part;
+        }
+        static int calls = 0;
+        if (seen[key]++ == 0 || calls < 40) LOGR("diag dsound mixbins %08X %s", v.obj, key.c_str());
+        calls++;
+    }
 }
 // volumes only, the bins stay
 void SetBinVolumes(Voice& v, uint32_t mixbins) {
@@ -815,6 +890,15 @@ void ReadVoiceData(Voice& v, uint32_t data) {
     for (uint32_t bit = 0; bit < 8; bit++) {
         if (!(flags >> bit & 1)) continue;
         for (uint32_t k = kFirst[bit]; k < kFirst[bit] + kCount[bit]; k++) v.voice_data[k] = R32(data + k * 4);
+    }
+    {  // DIAGNOSTIC (AARoaS missing 3D sounds), remove after: an update that leaves a level below -30 dB
+        auto quiet = [&](uint32_t k) { return (flags & 0xFF) && int32_t(v.voice_data[k]) <= -3000; };
+        bool loud_ok = !(quiet(1) || quiet(2) || quiet(5) || quiet(7));
+        if (!loud_ok && g_diag_sound_lines++ < 30000)
+            LOGR("diag dsound 3D data %08X flags %X dist %d cone %d front %d centre %d direct %d room %d pitch %d az %.1f el %.1f use %d",
+                 v.obj, flags, int32_t(v.voice_data[1]), int32_t(v.voice_data[2]), int32_t(v.voice_data[5]),
+                 int32_t(v.voice_data[6]), int32_t(v.voice_data[7]), int32_t(v.voice_data[8]), int32_t(v.voice_data[9]),
+                 std::bit_cast<float>(v.voice_data[10]), std::bit_cast<float>(v.voice_data[11]), v.use_data);
     }
 }
 
@@ -858,10 +942,15 @@ uint32_t NewBuffer(uint32_t desc, uint32_t out) {
     ReadFormat(v, R32(desc + 12));
     SetBins(v, R32(desc + 16));
     v.is3d = flags & 0x10;  // DSBCAPS_CTRL3D
+    v.mixin = flags & 0x2000;  // DSBCAPS_MIXIN
     v.headroom = DefaultHeadroom(flags);
     if (bytes) {
         v.data = v.owned = mem::AllocContiguous(bytes, 0, 0xFFFFFFFF, 4);
         v.bytes = v.play_len = v.loop_len = bytes;
+    }
+    {  // DIAGNOSTIC (AARoaS missing 3D sounds), remove after
+        if (g_diag_sound_lines++ < 30000)
+            LOGR("diag dsound new buffer %08X flags %X bytes %u channels %u 3d %d", obj, flags, bytes, v.channels, v.is3d);
     }
     W32(out, obj);
     return 0;
@@ -1154,10 +1243,29 @@ HLE_STDCALL(IDirectSound_GetOutputLevels, 3) {
 HLE_STDCALL(DirectSoundCreateBuffer, 2) { return NewBuffer(a[0], a[1]); }
 HLE_STDCALL(IDirectSound_CreateSoundBuffer, 4) { return NewBuffer(a[1], a[2]); }
 
+// DIAGNOSTIC (AARoaS missing 3D sounds, dialogue not stopping), remove after: for the whole session, the calls that
+// start, stop or end a voice, and a volume that makes one nearly silent; capped at 30000 lines (g_diag_sound_lines)
+bool DiagSoundWanted(std::string_view name, uint32_t a1) {
+    static const std::string_view kEvents[] = {"Play", "Stop", "StopEx", "Pause", "PauseEx", "Flush", "FlushEx",
+                                               "Discontinuity", "Release", "Use3DVoiceData"};
+    std::string_view method = name.substr(name.find(' ') + 1);
+    bool event = false;
+    for (auto e : kEvents) event |= method == e;
+    if (method == "SetVolume") event = int32_t(a1) <= -6000;
+    return event && g_diag_sound_lines++ < 30000;
+}
+#define DIAG_SOUND_CALL(label, nargs)                                                                                 \
+    do {                                                                                                         \
+        if (DiagSoundWanted(label, (nargs) > 1 ? a[1] : 0))                                                      \
+            LOGR("diag dsound %s %08X (%08X %08X %08X)", label, a[0], (nargs) > 1 ? a[1] : 0, (nargs) > 2 ? a[2] : 0, \
+                 (nargs) > 3 ? a[3] : 0);                                                                        \
+    } while (0)
+
 #define BUFFER(name, nargs)                                 \
     static uint32_t buf_##name(Voice& v, const Args& a);    \
     HLE_STDCALL(IDirectSoundBuffer_##name, nargs) {         \
         std::lock_guard<std::recursive_mutex> lock(g_lock); \
+        DIAG_SOUND_CALL("buf " #name, nargs);               \
         Voice* v = Find(a[0]);                              \
         return v ? buf_##name(*v, a) : 0x80004005u;         \
     }                                                       \
@@ -1309,7 +1417,11 @@ BUFFER(SetRolloffCurve, 4) {
     for (uint32_t i = 0; a[1] && i < std::min<uint32_t>(a[2], 64); i++) v.curve.push_back(F32(R32(a[1] + i * 4)));
     return 0;
 }
-BUFFER(SetOutputBuffer, 2) { return 0; }  // the voice keeps its own mix bins
+// (this, submix buffer or null): the dry sound also goes to the submix; the voice keeps its own mix bins
+BUFFER(SetOutputBuffer, 2) {
+    v.output = a[1];
+    return 0;
+}
 BUFFER(AddRef, 1) { return uint32_t(++v.refs); }
 BUFFER(GetVoiceProperties, 2) {
     WriteVoiceProps(v, a[1]);
@@ -1371,6 +1483,7 @@ HLE_STDCALL(IDirectSound_CreateSoundStream, 4) { return NewStream(a[1], a[2]); }
         std::vector<Done> flushed;                              \
         {                                                       \
             std::lock_guard<std::recursive_mutex> lock(g_lock); \
+            DIAG_SOUND_CALL("str " #name, nargs);               \
             Voice* v = Find(a[0]);                              \
             r = v ? str_##name(*v, a) : 0x80004005u;            \
             flushed.swap(t_flushed);                            \
@@ -1380,12 +1493,15 @@ HLE_STDCALL(IDirectSound_CreateSoundStream, 4) { return NewStream(a[1], a[2]); }
     }                                                           \
     static uint32_t str_##name([[maybe_unused]] Voice& v, [[maybe_unused]] const Args& a)
 
-// the stream's callbacks still queued and those of its flushed packets, in order, go to the calling thread
-static void FlushStream(Voice& v) {
+// the stream's callbacks still queued and those of its flushed packets, in order, go to the calling thread; an
+// asynchronous flush (FlushEx DSSTREAMFLUSHEX_ASYNC) leaves them to come later, as the console does. XACT stops a
+// cue that way and only marks the cue stopping after the call: callbacks run inside it saw packets come back to a
+// playing cue and queued the rest of the line, so skipped dialogue played on over the next.
+static void FlushStream(Voice& v, bool async = false) {
     for (auto& pk : v.packets) Complete(v, pk, kFlushed);
     v.packets.clear();
     v.pos = 0;
-    for (auto it = g_done.begin(); it != g_done.end();) {
+    for (auto it = g_done.begin(); !async && it != g_done.end();) {
         if (it->voice != v.obj) {
             ++it;
             continue;
@@ -1445,9 +1561,10 @@ STREAM(Flush, 1) {
     FlushStream(v);
     return 0;
 }
+// (this, time low, time high, flags): 1 DSSTREAMFLUSHEX_ASYNC, 2 and 4 the release envelopes (not played)
 STREAM(FlushEx, 4) {
     if (a[3] && !v.active) return 0;
-    FlushStream(v);
+    FlushStream(v, a[3] & 1);
     return 0;
 }
 STREAM(Pause, 2) {
@@ -1470,7 +1587,11 @@ STREAM(SetFrequency, 2) {
     return 0;
 }
 STREAM(SetFilter, 2) { return 0; }
-STREAM(SetOutputBuffer, 2) { return 0; }  // the voice keeps its own mix bins
+// (this, submix buffer or null): as the buffer's
+STREAM(SetOutputBuffer, 2) {
+    v.output = a[1];
+    return 0;
+}
 STREAM(GetVoiceProperties, 2) {
     WriteVoiceProps(v, a[1]);
     return 0;
