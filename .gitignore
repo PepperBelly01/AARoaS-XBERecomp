@@ -1,0 +1,13 @@
+/out/
+/build/
+
+# the user's own copy of the game (disc image and extracted files): never versioned
+/Game/
+# another project kept for reference, read only
+/Reference/
+# files set aside instead of deleted
+/_to_delete/
+
+.vs/
+.vscode/
+.idea/
