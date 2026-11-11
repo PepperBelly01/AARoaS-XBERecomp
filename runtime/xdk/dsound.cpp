@@ -223,6 +223,9 @@ struct Voice {
     bool playing = false, looping = false, paused = false;
     bool sync = false;  // held until IDirectSound_SynchPlayback
     bool active = false, ending = false;  // stream: took a packet since it went quiet, quiet again once they run out
+    // stream: an asynchronous FlushEx is under way, so packets submitted now come back flushed, unplayed, until the
+    // title sets the stream up again (Pause, SetFormat, a plain flush)
+    bool flushing = false;
     double pos = 0;  // frames
     uint32_t freq = 0;
     // stream
@@ -789,6 +792,14 @@ void Render(float* out, uint32_t frames) {
             auto it = g_voices.find(v.output);
             if (it != g_voices.end() && it->second.mixin) sub = &it->second;
         }
+        if (v.stream && !sub && !v.packets.empty()) {  // DIAGNOSTIC (AARoaS missing dialogue), remove after
+            static std::map<uint32_t, bool> told;
+            if (!told[obj] && g_diag_sound_lines++ < 30000) {
+                told[obj] = true;
+                LOGR("diag dsound stream %08X plays without a submix (output %08X, %u bins, volume %.3f)", obj, v.output,
+                     uint32_t(v.nbins), v.volume);
+            }
+        }
         MixVoice(v, bins.data(), frames, sub);
     }
     for (auto& [obj, v] : g_voices) {
@@ -1247,7 +1258,7 @@ HLE_STDCALL(IDirectSound_CreateSoundBuffer, 4) { return NewBuffer(a[1], a[2]); }
 // start, stop or end a voice, and a volume that makes one nearly silent; capped at 30000 lines (g_diag_sound_lines)
 bool DiagSoundWanted(std::string_view name, uint32_t a1) {
     static const std::string_view kEvents[] = {"Play", "Stop", "StopEx", "Pause", "PauseEx", "Flush", "FlushEx",
-                                               "Discontinuity", "Release", "Use3DVoiceData"};
+                                               "Discontinuity", "Release", "Use3DVoiceData", "SetOutputBuffer"};
     std::string_view method = name.substr(name.find(' ') + 1);
     bool event = false;
     for (auto e : kEvents) event |= method == e;
@@ -1514,6 +1525,7 @@ static void FlushStream(Voice& v, bool async = false) {
 
 STREAM(AddRef, 1) { return uint32_t(++v.refs); }
 STREAM(SetFormat, 2) {
+    v.flushing = false;
     FlushStream(v);
     ReadFormat(v, a[1]);
     v.freq = 0;  // the XDK sets the pitch back to the new format's own rate
@@ -1545,6 +1557,10 @@ STREAM(Process, 3) {
     if (!in) return 0;
     Packet pk{R32(in), R32(in + 4), R32(in + 8), R32(in + 12), R32(in + 16)};
     if (pk.completed_ptr) W32(pk.completed_ptr, 0);
+    if (v.flushing) {  // comes back flushed, its callback later from the queue
+        Complete(v, pk, kFlushed);
+        return 0;
+    }
     if (pk.status_ptr) W32(pk.status_ptr, kPacketPending);
     v.packets.push_back(pk);
     if (!v.active) v.has_gain = false;  // after going quiet a stream starts its levels fresh
@@ -1558,22 +1574,29 @@ STREAM(Discontinuity, 1) {
     return 0;
 }
 STREAM(Flush, 1) {
+    v.flushing = false;
     FlushStream(v);
     return 0;
 }
 // (this, time low, time high, flags): 1 DSSTREAMFLUSHEX_ASYNC, 2 and 4 the release envelopes (not played)
+// An asynchronous one also flushes what comes in while it runs: XACT stops a cue with it while its reads for that
+// cue are still landing, and only stops reading once packets come back flushed. Played, they ran the line on.
 STREAM(FlushEx, 4) {
+    if (a[3] & 1) v.flushing = true;
+    else v.flushing = false;
     if (a[3] && !v.active) return 0;
     FlushStream(v, a[3] & 1);
     return 0;
 }
 STREAM(Pause, 2) {
+    v.flushing = false;  // XACT sets a stream up for its next cue with Pause
     v.paused = a[1] == 1;
     v.sync = a[1] == 2;
     return 0;
 }
 // (this, time low, time high, flags): takes effect now, the timestamp is not honored
 STREAM(PauseEx, 4) {
+    v.flushing = false;
     v.paused = a[3] == 1;
     v.sync = a[3] == 2;
     return 0;
