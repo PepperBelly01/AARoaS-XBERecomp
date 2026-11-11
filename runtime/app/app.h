@@ -25,6 +25,7 @@ struct Settings {
     uint32_t aspect = 0;             // kAspectAuto, kAspect4x3 or kAspect16x9
     uint32_t fps_cap = 60;           // 0 unlimited, kFpsCapRefresh the monitor's refresh rate
     bool vsync = true;
+    bool fps_counter = false;        // frames a second, top left
     uint32_t aniso = 0;              // 0 as the game asks
     bool custom_textures = true;     // images in textures\replacement\ beside the exe replace the game's
     bool dump_textures = false;      // each texture once into textures\dumps\ beside the exe
@@ -34,6 +35,7 @@ struct Settings {
 };
 
 Settings& Get();
+const Settings& Defaults();  // the settings before the file loaded: the SDK's, with the game's own defaults
 void Load();
 void Save();
 void LogSettings();  // every setting, as the settings file has them
@@ -75,6 +77,11 @@ void FinishHandover();  // any thread but the window thread's: opens the game wi
 
 // held around ImGui: the window thread's messages and the renderer's frame
 std::recursive_mutex& UiLock();
+
+// F10 settings overlay (menu.cpp): while open the game's controllers read idle
+bool MenuOpen();
+void ToggleMenu();
+void DrawMenu(double fps);  // each frame inside the ImGui frame, UiLock held; also the FPS counter
 
 // what the game repo defines once
 struct Option {  // a setting in the settings file, flag or value

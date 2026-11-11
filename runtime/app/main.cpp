@@ -127,6 +127,14 @@ void ApplyNow() {
 }
 
 LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+    // F10 arrives as a system key (it would open the window menu); Escape closes the overlay too
+    if ((msg == WM_SYSKEYDOWN || msg == WM_KEYDOWN) && !(lp & (1 << 30))) {
+        if (wp == VK_F10 || (wp == VK_ESCAPE && MenuOpen())) {
+            ToggleMenu();
+            return 0;
+        }
+    }
+    if (msg == WM_SYSKEYUP && wp == VK_F10) return 0;
     {
         std::lock_guard lock(UiLock());
         if (ImGui::GetCurrentContext() && ImGui_ImplWin32_WndProcHandler(hwnd, msg, wp, lp)) return 1;

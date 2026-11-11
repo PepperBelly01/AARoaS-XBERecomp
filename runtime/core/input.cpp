@@ -110,6 +110,12 @@ Pad Poll(int port) {
         }
     }
     if (app::kGame.pad) app::kGame.pad(port, p);
+    // the settings overlay has the controller: the game sees it still plugged in, nothing pressed
+    if (app::MenuOpen()) {
+        Pad idle;
+        idle.connected = p.connected;
+        return idle;
+    }
     return p;
 }
 

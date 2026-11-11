@@ -33,8 +33,15 @@ Settings& Get() {
     return s;
 }
 
+namespace {
+Settings g_defaults;
+}
+
+const Settings& Defaults() { return g_defaults; }
+
 void Load() {
     Settings& s = Get();
+    g_defaults = s;
     toml::table t;
     try {
         t = toml::parse_file(File().string());
@@ -50,6 +57,7 @@ void Load() {
     s.aspect = std::min(t["aspect"].value_or(s.aspect), kAspect16x9);
     s.fps_cap = t["fps_cap"].value_or(s.fps_cap);
     s.vsync = t["vsync"].value_or(s.vsync);
+    s.fps_counter = t["fps_counter"].value_or(s.fps_counter);
     s.aniso = t["anisotropic_filtering"].value_or(s.aniso);
     s.custom_textures = t["custom_textures"].value_or(s.custom_textures);
     s.dump_textures = t["dump_textures"].value_or(s.dump_textures);
@@ -75,6 +83,7 @@ toml::table Table() {
                   {"aspect", int64_t(s.aspect)},
                   {"fps_cap", int64_t(s.fps_cap)},
                   {"vsync", s.vsync},
+                  {"fps_counter", s.fps_counter},
                   {"anisotropic_filtering", int64_t(s.aniso)},
                   {"custom_textures", s.custom_textures},
                   {"dump_textures", s.dump_textures},
