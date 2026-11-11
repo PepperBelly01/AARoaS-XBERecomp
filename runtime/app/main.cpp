@@ -298,6 +298,16 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
     ImGuiIO& io = ImGui::GetIO();
     io.IniFilename = nullptr;
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard | ImGuiConfigFlags_NavEnableGamepad;
+    // Windows' UI font, made at the size the monitor's height wants; ImGui's own 13 px font scaled up looks blocky
+    {
+        wchar_t fonts[MAX_PATH];
+        UINT n = GetWindowsDirectoryW(fonts, MAX_PATH);
+        std::filesystem::path font = std::filesystem::path(std::wstring(fonts, n)) / L"Fonts" / L"segoeui.ttf";
+        float px = std::clamp(float(app::Desktop().height) / 720.0f * app::kMenuFontPx, app::kMenuFontPx, 4 * app::kMenuFontPx);
+        std::error_code ec;
+        if (!std::filesystem::exists(font, ec) || !io.Fonts->AddFontFromFileTTF(font.string().c_str(), px))
+            io.Fonts->AddFontDefault();
+    }
     ImGui_ImplWin32_Init(app::g_hwnd);
 
     input::Init();

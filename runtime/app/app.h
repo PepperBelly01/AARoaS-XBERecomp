@@ -78,7 +78,9 @@ void FinishHandover();  // any thread but the window thread's: opens the game wi
 // held around ImGui: the window thread's messages and the renderer's frame
 std::recursive_mutex& UiLock();
 
-// F10 settings overlay (menu.cpp): while open the game's controllers read idle
+// F10 settings overlay (menu.cpp): while open the game's controllers read idle. Its text is kMenuFontPx on a 720
+// line frame, scaled with the frame's height
+inline constexpr float kMenuFontPx = 17.0f;
 bool MenuOpen();
 void ToggleMenu();
 void DrawMenu(double fps);  // each frame inside the ImGui frame, UiLock held; also the FPS counter

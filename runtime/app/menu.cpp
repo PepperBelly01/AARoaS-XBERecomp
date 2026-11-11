@@ -179,9 +179,10 @@ void ToggleMenu() {
 
 void DrawMenu(double fps) {
     ImGuiIO& io = ImGui::GetIO();
-    // ImGui's own font is 13 px: scaled with the frame, 720 lines as 1
+    // the font was made for the monitor's height: a smaller window shrinks it, 720 lines as 1
     float scale = std::clamp(ImGui::GetMainViewport()->Size.y / 720.0f, 1.0f, 4.0f);
-    io.FontGlobalScale = scale;
+    float made = io.Fonts->Fonts.empty() ? kMenuFontPx : io.Fonts->Fonts[0]->FontSize;
+    io.FontGlobalScale = std::min(1.0f, kMenuFontPx * scale / made);
     bool open = g_open.load();
     io.MouseDrawCursor = open;
     if (Get().fps_counter) DrawFps(fps, scale);
@@ -189,13 +190,20 @@ void DrawMenu(double fps) {
 
     const ImGuiViewport* vp = ImGui::GetMainViewport();
     ImGui::SetNextWindowPos({vp->Pos.x + vp->Size.x * 0.5f, vp->Pos.y + vp->Size.y * 0.5f}, ImGuiCond_Always, {0.5f, 0.5f});
-    ImGui::SetNextWindowSize({440 * scale, 0}, ImGuiCond_Always);
+    float em = ImGui::GetFontSize();
+    ImGuiStyle& style = ImGui::GetStyle();
+    style.WindowRounding = 0.4f * em;
+    style.FrameRounding = 0.25f * em;
+    style.WindowPadding = {0.9f * em, 0.7f * em};
+    style.FramePadding = {0.45f * em, 0.2f * em};
+    style.ItemSpacing = {0.5f * em, 0.35f * em};
+    ImGui::SetNextWindowSize({30 * em, 0}, ImGuiCond_Always);
     ImGui::SetNextWindowBgAlpha(0.92f);
     constexpr ImGuiWindowFlags kFlags = ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
                                         ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_AlwaysAutoResize;
     bool keep = true;
     ImGui::Begin("Settings", &keep, kFlags);
-    ImGui::PushItemWidth(-200 * scale);
+    ImGui::PushItemWidth(-12 * em);
     DrawDisplay();
     DrawGraphics();
     DrawAudio();
