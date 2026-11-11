@@ -168,6 +168,9 @@ void DrawGraphics() {
     Settings& s = Get();
     ImGui::SeparatorText("Graphics");
     if (Pick("Anisotropic Filtering", s.aniso, {{0, "Game default"}, {2, "2x"}, {4, "4x"}, {8, "8x"}, {16, "16x"}})) Save();
+    if (ImGui::Checkbox("SMAA", &s.smaa)) Save();
+    Hint("Smooths jagged edges over the whole picture, HUD included, alpha tested fences and foliage too. "
+         "Slightly softer image.");
 }
 
 void DrawGeneral() {

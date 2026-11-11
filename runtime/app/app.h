@@ -30,6 +30,7 @@ struct Settings {
     bool hide_hud = false;           // the 2D over the 3D view is not drawn (GameInfo::screen_2d)
     bool skip_intros = false;        // the boot movies, for a game whose hooks honour it (GameInfo::skip_intros)
     uint32_t aniso = 0;              // 0 as the game asks
+    bool smaa = false;               // SMAA over the finished frame, HUD included
     bool custom_textures = true;     // images in textures\replacement\ beside the exe replace the game's
     bool dump_textures = false;      // each texture once into textures\dumps\ beside the exe
     uint32_t texture_dump_format = 0;  // 0 PNG, 1 DDS

@@ -63,6 +63,7 @@ void Load() {
     s.hide_hud = t["hide_hud"].value_or(s.hide_hud);
     s.skip_intros = t["skip_intros"].value_or(s.skip_intros);
     s.aniso = t["anisotropic_filtering"].value_or(s.aniso);
+    s.smaa = t["smaa"].value_or(s.smaa);
     s.custom_textures = t["custom_textures"].value_or(s.custom_textures);
     s.dump_textures = t["dump_textures"].value_or(s.dump_textures);
     s.texture_dump_format = std::min(t["texture_dump_format"].value_or(s.texture_dump_format), 1u);
@@ -92,6 +93,7 @@ toml::table Table() {
                   {"hide_hud", s.hide_hud},
                   {"skip_intros", s.skip_intros},
                   {"anisotropic_filtering", int64_t(s.aniso)},
+                  {"smaa", s.smaa},
                   {"custom_textures", s.custom_textures},
                   {"dump_textures", s.dump_textures},
                   {"texture_dump_format", int64_t(s.texture_dump_format)},
