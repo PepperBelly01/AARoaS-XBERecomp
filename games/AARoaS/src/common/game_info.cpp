@@ -20,6 +20,7 @@ const app::GameInfo app::kGame = {
     .screen_2d = true,
     .skip_intros = true,  // intro.cpp
     .max_fps = 60,        // weapon recoil is added each frame: above 60 FPS it throws the view
+    .ambient_occlusion = true,  // widescreen.cpp
     .load = nullptr,
     .save = nullptr,
     .init = nullptr,

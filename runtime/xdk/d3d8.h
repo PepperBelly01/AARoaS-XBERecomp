@@ -11,5 +11,10 @@ std::recursive_mutex& Lock();
 void PresentOverlay(uint32_t surface);
 // the title's Swaps so far: a game hook's frame number
 uint32_t Presents();
+// Ambient occlusion for a game hook: armed with the world camera's projection m (16 floats, row vectors) as it is
+// set up, it goes over the bound scene and its depth before the frame's next depth clear once the world has drawn
+// (games clear depth before the first person weapon), or at Occlusion, whichever comes first
+void ArmOcclusion(const float* m, bool gtao);
+void Occlusion();
 
 }  // namespace d3d

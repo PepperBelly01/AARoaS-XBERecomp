@@ -20,11 +20,15 @@ bool g_world = false;      // the running UpdateMatrices is the frame's first
 
 }  // namespace
 
+// Ambient occlusion is armed with the world camera's projection as this frame builds it, and goes in once the world
+// is drawn: before the depth clear that comes ahead of the first person weapon, else (a cutscene: no weapon) as the
+// frame's second camera is set up. The weapon and the HUD come after it.
 X86_EXTERN_FUNC(__imp__sub_001F3E50);
 X86_FUNC(sub_001F3E50) {
     uint32_t frame = d3d::Presents();
     g_world = frame != g_frame;
     g_frame = frame;
+    if (!g_world && app::Get().ambient_occlusion) d3d::Occlusion();
     __imp__sub_001F3E50(ctx, base);
     g_world = false;
 }
@@ -42,5 +46,10 @@ X86_FUNC(sub_001F1AC0) {
         float s = app::FovScale();
         X86_MEMF32(matrix) /= s;
         X86_MEMF32(matrix + 0x14) /= s;
+        if (uint32_t ao = app::Get().ambient_occlusion) {
+            float m[16];
+            for (uint32_t i = 0; i < 16; i++) m[i] = X86_MEMF32(matrix + i * 4);
+            d3d::ArmOcclusion(m, ao == 2);
+        }
     }
 }

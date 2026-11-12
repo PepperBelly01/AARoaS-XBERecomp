@@ -65,6 +65,7 @@ void Load() {
     s.aniso = t["anisotropic_filtering"].value_or(s.aniso);
     s.smaa = t["smaa"].value_or(s.smaa);
     s.msaa = std::min(t["msaa"].value_or(s.msaa), 8u);
+    s.ambient_occlusion = std::min(t["ambient_occlusion"].value_or(s.ambient_occlusion), 2u);
     s.custom_textures = t["custom_textures"].value_or(s.custom_textures);
     s.dump_textures = t["dump_textures"].value_or(s.dump_textures);
     s.texture_dump_format = std::min(t["texture_dump_format"].value_or(s.texture_dump_format), 1u);
@@ -96,6 +97,7 @@ toml::table Table() {
                   {"anisotropic_filtering", int64_t(s.aniso)},
                   {"smaa", s.smaa},
                   {"msaa", int64_t(s.msaa)},
+                  {"ambient_occlusion", int64_t(s.ambient_occlusion)},
                   {"custom_textures", s.custom_textures},
                   {"dump_textures", s.dump_textures},
                   {"texture_dump_format", int64_t(s.texture_dump_format)},

@@ -32,6 +32,7 @@ struct Settings {
     uint32_t aniso = 0;              // 0 as the game asks
     bool smaa = false;               // SMAA over the finished frame, HUD included
     uint32_t msaa = 0;               // samples a pixel of the scene, 0 off (2, 4 or 8)
+    uint32_t ambient_occlusion = 0;  // 0 off, 1 SSAO, 2 GTAO (GameInfo::ambient_occlusion)
     bool custom_textures = true;     // images in textures\replacement\ beside the exe replace the game's
     bool dump_textures = false;      // each texture once into textures\dumps\ beside the exe
     uint32_t texture_dump_format = 0;  // 0 PNG, 1 DDS
@@ -117,6 +118,7 @@ struct GameInfo {
     bool skip_intros = false;  // the game's hooks skip its boot movies with Settings::skip_intros: the overlay offers it
     // the highest frame rate the game's timing holds up at, 0 for none: Pace and the overlay keep under it
     uint32_t max_fps = 0;
+    bool ambient_occlusion = false;  // the game's hooks call d3d::Occlusion: the overlay offers it
     // the settings file's toml::table, for what options cannot hold
     void (*load)(const void* table);
     void (*save)(void* table);

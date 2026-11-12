@@ -14,8 +14,15 @@ enum : uint32_t {
     kClearStencil = 0x02,
 };
 
+// Occlusion's p: 1 / the camera projection's x and y scale, its x and y centre (m20, m21), its m32 and m22, three
+// spare, then 1 for GTAO (0 SSAO)
+constexpr int kOcclusionParams = 10;
+
 class Backend {
 public:
+    // ambient occlusion over the bound scene target from its depth, where the opaque world is drawn and the rest
+    // (the weapon, the HUD) is still to come
+    virtual void Occlusion(const State&, const float /*p*/[kOcclusionParams]) {}
     virtual ~Backend() = default;
     // the title's back buffer size, the output window may differ
     virtual bool Init(uint32_t width, uint32_t height) = 0;

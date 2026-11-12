@@ -621,6 +621,25 @@ HLE_STDCALL(D3DDevice_GetDepthStencilSurface2, 0) {
 namespace {
 std::atomic<uint32_t> g_presents{0};
 
+// Ambient occlusion: armed when the world's camera is set up, it goes in before the frame's next depth clear once
+// the world has drawn (a game clears depth before its first person weapon), or when the game says so
+// (d3d::Occlusion), whichever comes first; once a frame
+uint64_t g_draws = 0;  // draws sent, all kinds
+struct ArmedOcclusion {
+    bool armed = false;
+    uint32_t frame = 0;  // g_presents when armed
+    uint64_t draws = 0;  // g_draws when armed
+    float p[gpu::kOcclusionParams] = {};
+};
+ArmedOcclusion g_ao;
+constexpr uint64_t kWorldDraws = 48;  // draws since arming that make a world, not a sky pass ahead of it
+
+void RunOcclusion() {
+    if (!g_ao.armed || g_ao.frame != g_presents.load() || !g_backend) return;
+    g_ao.armed = false;
+    g_backend->Occlusion(g_state, g_ao.p);
+}
+
 // The video overlay (UpdateOverlay, used by XMV movies): the console scans it out over the frame buffer. Its latest
 // frame, decoded to a linear X8R8G8B8 surface, takes the frame buffer's place at Swap while it is being updated.
 // It stays up from an update until EnableOverlay(FALSE), as on the console: a movie holding a still picture (a rating
@@ -682,6 +701,18 @@ HLE_STDCALL(D3DDevice_Swap, 1) {
 namespace d3d {
 uint32_t Presents() { return g_presents.load(); }
 
+void ArmOcclusion(const float* m, bool gtao) {
+    std::lock_guard<std::recursive_mutex> lock(g_lock);
+    // a perspective projection only (row vectors: m23 = 1, m33 = 0)
+    if (!g_backend || m[11] != 1.0f || m[15] != 0.0f || !m[0] || !m[5]) return;
+    g_ao = {true, g_presents.load(), g_draws, {1 / m[0], 1 / m[5], m[8], m[9], m[14], m[10], 0, 0, 0, gtao ? 1.0f : 0.0f}};
+}
+
+void Occlusion() {
+    std::lock_guard<std::recursive_mutex> lock(g_lock);
+    RunOcclusion();
+}
+
 // UpdateOverlay's frame: Swap shows it while it keeps coming. A title that does not swap during the movie gets it
 // presented here.
 void PresentOverlay(uint32_t surface) {
@@ -716,6 +747,8 @@ void PresentOverlay(uint32_t surface) {
 HLE_STDCALL(D3DDevice_Clear, 6) {
     std::lock_guard<std::recursive_mutex> lock(g_lock);
     const uint8_t* rects = a[0] && a[1] ? static_cast<const uint8_t*>(HostPtr(a[1])) : nullptr;
+    constexpr uint32_t kClearZFlag = 1;  // D3DCLEAR_ZBUFFER
+    if ((a[2] & kClearZFlag) && g_ao.armed && g_draws - g_ao.draws >= kWorldDraws) RunOcclusion();
     if (g_backend) g_backend->Clear(g_state, a[0], rects, a[2], a[3], ArgF(a, 4), a[5]);
     return 0;
 }
@@ -1259,6 +1292,7 @@ HLE_STDCALL(D3DDevice_DrawVertices, 3) {
     std::lock_guard<std::recursive_mutex> lock(g_lock);
     Walk(Dev(kDevPush));  // a visibility test begun since the last draw counts this one
     SyncDeferred();
+    g_draws++;
     if (g_backend) g_backend->Draw(g_state, a[0], a[1], a[2], nullptr);
     return 0;
 }
@@ -1268,6 +1302,7 @@ HLE_STDCALL(D3DDevice_DrawIndexedVertices, 3) {
     Walk(Dev(kDevPush));
     SyncDeferred();
     const uint8_t* indices = a[2] ? static_cast<const uint8_t*>(HostPtr(a[2])) : nullptr;
+    g_draws++;
     if (g_backend) g_backend->Draw(g_state, a[0], 0, a[1], indices);
     return 0;
 }
@@ -1307,6 +1342,7 @@ void DrawUp(uint32_t prim, uint32_t count, const void* vertices, uint32_t stride
     uint32_t used = indices ? *std::max_element(indices, indices + count) + 1u : count;
     auto stream = g_state.streams[0];
     g_state.streams[0] = {UpVertices(vertices, used * stride), stride};
+    g_draws++;
     g_backend->Draw(g_state, prim, 0, count, reinterpret_cast<const uint8_t*>(indices));
     g_state.streams[0] = stream;
 }

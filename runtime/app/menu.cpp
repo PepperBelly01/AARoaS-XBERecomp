@@ -174,6 +174,11 @@ void DrawGraphics() {
     Hint("Multisampling smooths the edges of 3D shapes while keeping the image sharp. It does not smooth alpha "
          "tested edges (fences, foliage); SMAA does, and the two combine.");
     if (ImGui::Checkbox("SMAA", &s.smaa)) Save();
+    if (kGame.ambient_occlusion) {
+        if (Pick("Ambient Occlusion", s.ambient_occlusion, {{0, "Off"}, {1, "SSAO"}, {2, "GTAO"}})) Save();
+        Hint("Darkens creases, corners and where things meet the ground, from the scene's depth. GTAO is the "
+             "more accurate and a little slower.");
+    }
     Hint("Smooths jagged edges over the whole picture, HUD included, alpha tested fences and foliage too. "
          "Slightly softer image.");
 }

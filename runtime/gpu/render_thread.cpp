@@ -43,7 +43,7 @@ constexpr uint32_t kHeaderRing = 1u << 20;  // guest memory for header copies; a
 
 enum class WaitFor : uint8_t { ReadBack, Resource, Fence, Flush, Copy, Frame, Count };
 
-enum class Op : uint8_t { State, Draw, Clear, Copy, Present, Sync, RecordLate, Flush, Gamma, ClearReport, GetReport };
+enum class Op : uint8_t { State, Draw, Clear, Copy, Present, Sync, RecordLate, Flush, Gamma, ClearReport, GetReport, Occlusion };
 
 struct Cmd {
     Op op;
@@ -220,6 +220,15 @@ public:
         cur_->cmds.push_back(c);
     }
 
+    void Occlusion(const State& s, const float p[kOcclusionParams]) override {
+        SendState(s);
+        Cmd c{Op::Occlusion};
+        c.data = Put(p, kOcclusionParams * sizeof(float));
+        cur_->cmds.push_back(c);
+        Use(s.rt.header);
+        Use(s.zs.header);
+        Written(s.rt);
+    }
     void ClearReport() override { cur_->cmds.push_back(Cmd{Op::ClearReport}); }
     void GetReport(uint32_t report) override {
         Cmd c{Op::GetReport};
@@ -468,6 +477,12 @@ private:
             case Op::Gamma: inner_->SetGamma(data); break;
             case Op::ClearReport: inner_->ClearReport(); break;
             case Op::GetReport: inner_->GetReport(c.a); break;
+            case Op::Occlusion: {
+                float p[kOcclusionParams];
+                std::memcpy(p, data, sizeof(p));
+                inner_->Occlusion(state_, p);
+                break;
+            }
         }
     }
 
