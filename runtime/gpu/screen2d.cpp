@@ -40,8 +40,22 @@ uint32_t Find(std::vector<uint32_t>& parent, uint32_t i) {
 // draw for its first frame.
 // A draw is matched to last frame's by its box, not its place in the order: text typed out letter by letter adds
 // draws each frame. A draw with no match that touches the run being drawn joins it at once.
+//
+// 2D that follows the world (a name over a soldier's head, the sun's flare) is placed by the game on its 4:3 frame
+// from a 3D position: on the 16:9 frame it belongs where the 3D view puts that position, narrowed about the centre,
+// whatever third it is in. Anchored by its third it jumped from one side's anchor to another as it crossed a third.
+// It is told from the HUD by moving: a draw with no match last frame, the same size as one of last frame's a little
+// way off, is the same thing moved; its run is centred from then on (and while it stands still, matched by its box).
+struct Last {
+    Canvas anchor;
+    bool world;  // follows the world: centred
+};
 std::vector<Box> g_drawn;                          // this frame's canvas draws in order
-std::unordered_map<uint64_t, Canvas> g_last;       // last frame's, by box, the anchor of each one's run
+std::vector<bool> g_drawn_world;                   // each one found to follow the world
+std::unordered_map<uint64_t, Last> g_last;         // last frame's, by box, the anchor of each one's run
+std::vector<Box> g_last_boxes;                     // last frame's, for finding a moved one
+constexpr float kSameSize = 0.004f;                // clip space: a box this close in width and height is the same
+constexpr float kMoved = 0.2f;                     // ... and moved, this near (a turn's worth in a frame)
 // this frame so far: any canvas draw yet, the first was across the screen (the dimmed layer of a pause menu or
 // briefing over the 3D view: the frame is a menu, all of it kept 4:3 about the centre), the run being drawn
 bool g_any = false, g_menu = false, g_in_run = false;
@@ -74,14 +88,31 @@ void GroupDrawn() {
     g_last.clear();
     for (size_t start = 0; start < n;) {
         Box run = g_drawn[start];
+        bool world = g_drawn_world[start];
         size_t end = start + 1;
-        for (; end < n && Touches(run, g_drawn[end]); end++) run = Join(run, g_drawn[end]);
-        Canvas anchor = AnchorOf(run);
-        for (size_t i = start; i < end; i++) g_last[BoxKey(g_drawn[i])] = anchor;
+        for (; end < n && Touches(run, g_drawn[end]); end++) {
+            run = Join(run, g_drawn[end]);
+            world = world || g_drawn_world[end];
+        }
+        Last last{world ? Canvas::Centre : AnchorOf(run), world};
+        for (size_t i = start; i < end; i++) g_last[BoxKey(g_drawn[i])] = last;
         start = end;
     }
+    g_last_boxes.swap(g_drawn);
     g_drawn.clear();
+    g_drawn_world.clear();
     g_any = g_menu = g_in_run = false;
+}
+
+// a box new this frame that is one of last frame's moved a little: it follows the world
+bool Moved(const Box& b) {
+    float w = b.x1 - b.x0, h = b.y1 - b.y0;
+    for (const Box& o : g_last_boxes) {
+        if (std::abs((o.x1 - o.x0) - w) > kSameSize || std::abs((o.y1 - o.y0) - h) > kSameSize) continue;
+        float dx = std::abs(o.x0 - b.x0), dy = std::abs(o.y0 - b.y0);
+        if (dx + dy > 0.001f && dx <= kMoved && dy <= kMoved) return true;
+    }
+    return false;
 }
 
 // One element of a 3D frame's 2D, its box in clip space (y up), as it comes in the order: where it goes. Both kinds
@@ -96,14 +127,27 @@ Canvas Decide(const Box& b, bool hide, bool wide) {
     if (g_menu) return wide ? Canvas::Centre : Canvas::Keep;  // a menu over the 3D view: as made, hidden or not
     if (hide) return Canvas::Hide;
     if (!wide) return Canvas::Keep;
-    if (g_drawn.size() < kMaxGroups) g_drawn.push_back(b);
-    // the same draw last frame: its run's anchor; new, touching the run being drawn: that run's; else its own
+    // the same draw last frame: its run's anchor; new, touching the run being drawn: that run's; new and moved: it
+    // follows the world, centred; else its own
     Canvas anchor;
+    bool world = false;
     auto last = g_last.find(BoxKey(b));
     bool joins = g_in_run && Touches(g_run, b);
-    if (last != g_last.end()) anchor = last->second;
-    else if (joins) anchor = g_run_anchor;
-    else anchor = AnchorOf(b);
+    if (last != g_last.end()) {
+        anchor = last->second.anchor;
+        world = last->second.world;
+    } else if (joins) {
+        anchor = g_run_anchor;
+    } else if (Moved(b)) {
+        anchor = Canvas::Centre;
+        world = true;
+    } else {
+        anchor = AnchorOf(b);
+    }
+    if (g_drawn.size() < kMaxGroups) {
+        g_drawn.push_back(b);
+        g_drawn_world.push_back(world);
+    }
     g_run = joins ? Join(g_run, b) : b;
     if (!joins) g_run_anchor = anchor;
     g_in_run = true;

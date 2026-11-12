@@ -229,6 +229,34 @@ float ZoomHold(float fov) {
     return std::tan(fov * kHalfDegree) / std::tan(g_base_fov * kHalfDegree);
 }
 
+// The game paused (the pause menu): LevelInfo.Pauser set, the controller's Level (Actor.Level) its LevelInfo.
+// Looked up once a map (a new controller), by name through the class chain as the lock's variables are.
+bool GamePaused(uint8_t* base, uint32_t viewport) {
+    uint32_t controller = X86_MEM32(viewport + 0x34);
+    if (!Readable(controller, 0x200) || !Calibrate(base, controller)) return false;
+    static uint32_t seen = 0, level_at = 0, pauser_at = 0;
+    if (controller != seen) {
+        seen = controller;
+        level_at = pauser_at = 0;
+        for (uint32_t name : NameIndexes(base, "Level"))
+            if (uint32_t f = Field(base, controller, name, g_next)) {
+                level_at = X86_MEM32(f + g_offset_field);
+                break;
+            }
+        uint32_t level = level_at ? X86_MEM32(controller + level_at) : 0;
+        if (Readable(level, 0x40))
+            for (uint32_t name : NameIndexes(base, "Pauser"))
+                if (uint32_t f = Field(base, level, name, g_next)) {
+                    pauser_at = X86_MEM32(f + g_offset_field);
+                    break;
+                }
+        LOGR("menus: controller %08X Level +0x%X, LevelInfo.Pauser +0x%X", controller, level_at, pauser_at);
+    }
+    if (!level_at || !pauser_at) return false;
+    uint32_t level = X86_MEM32(controller + level_at);
+    return Readable(level + pauser_at, 4) && X86_MEM32(level + pauser_at) != 0;
+}
+
 // the angle the world is drawn at, for the mouse's turn (0 before the first frame)
 float ShownFov() { return g_shown_fov; }
 

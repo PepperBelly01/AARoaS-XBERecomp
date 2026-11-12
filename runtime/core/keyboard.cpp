@@ -32,6 +32,9 @@ Clock::time_point g_wheel_until[2];  // up, down
 float g_dx = 0, g_dy = 0;            // raw counts not taken yet
 std::vector<KeyBind> g_binds;
 std::atomic<bool> g_game_menu{false};
+std::atomic<uint16_t> g_menu_buttons{0};              // held for the game side's cursor ...
+std::atomic<int64_t> g_menu_buttons_until{0};         // ... until then (steady clock, ms)
+std::atomic<bool> g_menu_click{true};                 // a left click presses A
 HWND g_hwnd = nullptr;
 // rebinding: 1 waiting for a key, 2 a key taken
 std::atomic<int> g_capture{0};
@@ -248,6 +251,28 @@ bool TakeMouse(float& dx, float& dy) {
 
 void SetGameMenu(bool menu) { g_game_menu = menu; }
 
+int64_t NowMs() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now().time_since_epoch()).count();
+}
+
+void PressMenuButtons(uint16_t buttons, uint32_t ms) {
+    g_menu_buttons = buttons;
+    g_menu_buttons_until = NowMs() + ms;
+}
+
+void SetMenuClick(bool presses) { g_menu_click = presses; }
+
+bool CursorInWindow(int& x, int& y, int& width, int& height) {
+    POINT p;
+    RECT r;
+    if (!g_hwnd || !GetCursorPos(&p) || !ScreenToClient(g_hwnd, &p) || !GetClientRect(g_hwnd, &r)) return false;
+    x = p.x;
+    y = p.y;
+    width = r.right;
+    height = r.bottom;
+    return x >= 0 && y >= 0 && x < width && y < height;
+}
+
 bool MouseLooks() { return Looks(); }
 
 // the keyboard's and the mouse's presses over port 0's controller (input.cpp's Poll)
@@ -261,7 +286,20 @@ void MergeKeyboard(int port, Pad& p) {
     bool wheel[2] = {now < g_wheel_until[0], now < g_wheel_until[1]};
     int lx = 0, ly = 0, rx = 0, ry = 0;
     int slow = 0;  // percent of full the keys move the left stick, 0 full
+    // a game menu: the mouse works it as a PC menu, left click selects (A), right click goes back (B), the wheel
+    // steps up and down (the D-pad); its game bindings (fire, aim, weapon) are left out
+    bool menu = g_game_menu.load();
+    if (menu) {
+        if (g_held[VK_LBUTTON] && g_menu_click.load()) p.analog[0] = 0xFF;
+        if (NowMs() < g_menu_buttons_until.load()) p.buttons |= g_menu_buttons.load();
+        if (g_held[VK_RBUTTON]) p.analog[1] = 0xFF;
+        if (wheel[0]) p.buttons |= 1u << 0;
+        if (wheel[1]) p.buttons |= 1u << 1;
+    }
     for (const KeyBind& b : g_binds) {
+        bool mouse = b.key == VK_LBUTTON || b.key == VK_RBUTTON || b.key == VK_MBUTTON || b.key == VK_XBUTTON1 ||
+                     b.key == VK_XBUTTON2 || b.key >= kWheelUp;
+        if (menu && mouse) continue;
         bool down = b.key == kWheelUp     ? wheel[0]
                     : b.key == kWheelDown ? wheel[1]
                     : b.key == kWheel     ? wheel[0] || wheel[1]

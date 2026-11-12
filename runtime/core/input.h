@@ -63,6 +63,12 @@ void ReleaseAll();  // focus lost: nothing held
 bool TakeMouse(float& dx, float& dy);
 // the game side says a game menu has the input: the cursor is free and the mouse does not look
 void SetGameMenu(bool menu);
+// a game menu, for the game side's cursor: Pad::buttons bits held on port 0 for ms (a step of the selection), and
+// whether a left click presses A now (false while the cursor is off the menu's items)
+void PressMenuButtons(uint16_t buttons, uint32_t ms);
+void SetMenuClick(bool presses);
+// the cursor in the window's client area, false while it is outside the window
+bool CursorInWindow(int& x, int& y, int& width, int& height);
 // the mouse looks (captured: hidden and held in the window)
 bool MouseLooks();
 

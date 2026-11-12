@@ -17,5 +17,9 @@ uint32_t Presents();
 void ArmOcclusion(const float* m, bool gtao);
 void Occlusion();
 void TraceFrame();  // the next frame's draws and depth clears into the log (F9)
+// a game hook told each screen space draw's box as it is drawn, in pixels of the game's frame (x0, y0, x1, y1); the
+// title's thread
+using ScreenDrawFn = void (*)(float, float, float, float);
+void OnScreenDraw(ScreenDrawFn fn);
 
 }  // namespace d3d

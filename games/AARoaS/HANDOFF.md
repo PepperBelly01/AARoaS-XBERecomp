@@ -206,7 +206,28 @@ automatically through `../../cmake/XbeRecomp.cmake`; no `sdk\` copy is needed.
   rotation (camera scene node +0x1E0) and searched for again if the camera does not follow. The cached
   `hdd\Z\System\xboxuser.ini` gets MouseAccelThreshold=0 and MouseSmoothingMode=0 at each start (PatchUserIni).
   User confirmed: movement, keys, mouse (feels much better), slow walk. Known: the mouse turns the view behind the
-  pause menu (no game menu detection yet, input::SetGameMenu is never called).
+  pause menu (fixed: see game menus below).
+- **Game menus with the mouse, phase 1** (user confirmed): a game menu is open when no 3D is drawn (front end) or
+  LevelInfo.Pauser is set (pause menu; found by name through Actor.Level, aim_assist.cpp GamePaused);
+  input::SetGameMenu frees the cursor and stops mouse look, and keyboard.cpp maps left click to A, right click to
+  B, the wheel to D-pad up and down there. The menus are not Unreal's: Sidecar (CSidecarUI, CElement, behaviors:
+  scripts in UI/XBox/*.pkg with messages InputMessage, NOTIFY_selected / deselected, BUTTON_action and so on,
+  miSelectedItem, GetChildByPosition). CElement::Draw 0x36B170 (+0x30 visible byte, +4 behaviour count, +8
+  behaviours, each vtable[0] draw, then the children in +0x14), CElement::Send 0x36B2A0, CElement::Create
+  0x36AD30.
+- **Game menus with the mouse, phase 2** (`src/game/menus.cpp`; user: "good enough to move forward"): hover selects
+  the item under the cursor, a click picks it, clicks off the items do nothing. Each element's box comes from the
+  screen space draws made while it is on top of a stack kept in a CElement::Draw hook (d3d::OnScreenDraw gives each
+  XYZRHW draw's box in 640x480 page pixels); element +0x2C its place among its siblings. The selection: Send type
+  0x17 with 0x12C (selected) or 0x12D (deselected) in its third word, sent to the item and then down through all
+  inside it (the first receiver of a message is the item); type 0x15 tells the main menu's foot line which text to
+  show. Searches of all memory for a number or an element pointer moving with Up and Down found nothing; logging
+  the rarer messages (not 2 8 9 B 13: every frame or broadcast) found it. Hover presses Up / Down (Left / Right for
+  a row) through input::PressMenuButtons, 2 frames held and 1 let go (a press held into the next looked like one
+  long hold; 1 frame was sometimes not seen), one step at a time, each once answered. A step answered that leaves it
+  no nearer (a disabled row: the menu skips it and wraps), or 3 unanswered, gives the row up until the cursor goes
+  to another (it looped endlessly). States kept per item, so a page left and come back to needs no new message; a
+  page whose selection was never told gets one Down when the mouse moves. Could be faster: the steps are the limit.
 - **Aim Assist and Target Zoom toggles** (`src\game\aim_assist.cpp`, the after-tick part in mouse.cpp; settings
   `aim_assist`, `auto_zoom`; both in the Mouse and Keyboard and Controller tabs, any combination; user confirmed,
   "especially in firefights"). Findings:
@@ -228,10 +249,16 @@ automatically through `../../cmake/XbeRecomp.cmake`; no `sdk\` copy is needed.
     zoom: felt like sticking). Zoom Sensitivity (on/off, Strength 10-100%, under Target Zoom) slows it by
     (zoomed / before)^strength instead; off by default (the original game is on at 100%). User confirmed.
   - Release builds drop LOGI: diagnostics must use LOGR (one session of data was lost to this).
+  - Known, rare (user, for later): with Aim Assist off, killing a target next to another sometimes snaps to the
+    survivor. Likely the firing window: the lock switches targets within 150 ms of the shot and its pull passes as
+    kick (pitch up, yaw within 300). Idea: drop the lead and keep no kick on a tick where SelectedTarget changed.
 - **Widescreen** (`src\game\widescreen.cpp`): FCameraSceneNode::UpdateMatrices 0x1F3E50 builds the projection with
   FPerspectiveMatrix 0x1F1AC0 (call returns to 0x1F42F7); M[0][0] *= 0.75 on 16:9 (Hor+).
 - **Field of View**: the world camera (75 deg, first UpdateMatrices of each Swap) gets M00 and M11 / FovScale; the
   weapon camera (47 deg, second) keeps its angle. Its node class is also the menus' camera, so order tells them apart.
+- **2D that follows the world** (names over heads, the sun's flare; screen2d.cpp Moved): a new draw the size of one of
+  last frame's a little way off is the same thing moved, and its run is centred (anchored by thirds it jumped side
+  to side on 16:9; user confirmed fixed).
 - **HUD on 16:9** (`runtime\gpu\screen2d.cpp`, GameInfo::screen_2d): the HUD is fixed function draws through an
   orthographic projection. Each frame's such draws are cut into runs in draw order (touching pieces: a 3x3 box, then
   its text); a run is narrowed to 4:3 about the side it sits on or the centre (applied to that draw's wvp the next
@@ -259,13 +286,15 @@ automatically through `../../cmake/XbeRecomp.cmake`; no `sdk\` copy is needed.
   screen space draw (frames with no weapon have no clear after the world: AO dropped out), the depth clear before
   the weapon; else at the second camera (cutscenes). A "second depth clear" rule was tried and ran it on the sky
   pass. F9 logs one frame's draw order ("frame trace:"), letters at BeforeDraw. AO Strength (default 50%: the user
-  found 50 to 75% right, more too much). User confirmed the smoke and drop out fixes.
+  found 50 to 75% right, more too much). User confirmed the smoke and drop out fixes. A particle only counts once
+  16+ blended depth writing draws (vegetation) are in: a muzzle flash before the vegetation ran AO early and the
+  vegetation flickered with gunfire (user confirmed fixed).
 - **Frame rate**: GameInfo::max_fps = 60. Weapon recoil (and maybe more) is applied per frame: at 200 FPS it threw
   the view. The user wants uncapped frame rates later: find the recoil code and scale it by frame time.
 
 ## Future: PC features the user wants (paused 2026-11-10)
-Still to do: the game's menus with the mouse (hover, click, cursor free; detect a game menu, then
-input::SetGameMenu, which also stops mouse look behind the pause menu; see the reference's mouse.cpp and cursor.cpp),
+Still to do: key icons for the keyboard in menus and prompts (texture replacement of the A/B/X/Y glyphs; the user
+wants this next),
 a freelook key (the user's idea: the camera pans while the body and weapon keep facing ahead; the after-tick camera
 correction in mouse.cpp shows the camera can be set apart from Rotation, as the view already is behind the pause
 menu), frame rate independent recoil and timing (then lift max_fps), a controller combo to open the

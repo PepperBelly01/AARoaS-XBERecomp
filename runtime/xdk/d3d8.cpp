@@ -634,6 +634,10 @@ struct ArmedOcclusion {
 };
 ArmedOcclusion g_ao;
 uint32_t g_ao_clears = 0;             // depth clears since arming
+// blended draws writing depth since arming (vegetation: hundreds a frame): particles drawn before them are a muzzle
+// flash or sparks mid world, not the smoke at its end; AO there left the vegetation without it, flickering with fire
+uint32_t g_ao_blended = 0;
+constexpr uint32_t kVegetationDraws = 16;
 constexpr uint64_t kWorldDraws = 48;  // draws since arming that make a world, not a sky pass ahead of it
 
 // F9: one frame's draws and depth clears into the log, as runs (letters at BeforeDraw),
@@ -669,7 +673,8 @@ void RunOcclusion();
 void BeforeDraw(bool up) {
     bool screen = gpu::IsPretransformed(g_state);
     bool blend = g_state.simple[gpu::kMBlendEnable / 4] != 0, zwrite = g_state.simple[gpu::kMZWriteEnable / 4] != 0;
-    bool particle = up && blend && !zwrite && !screen;
+    if (blend && zwrite && !up && !screen) g_ao_blended++;
+    bool particle = up && blend && !zwrite && !screen && g_ao_blended >= kVegetationDraws;
     if ((screen || particle) && g_ao.armed && g_draws - g_ao.draws >= kWorldDraws) RunOcclusion();
     if (!g_tracing) return;
     // vertex buffer draws: o opaque, B blended writing depth, b blended not, n neither; DrawVerticesUP's (particles
@@ -677,6 +682,28 @@ void BeforeDraw(bool up) {
     if (screen) Trace('h');
     else if (up) Trace(blend && !zwrite ? 'u' : 'U');
     else Trace(blend ? (zwrite ? 'B' : 'b') : (zwrite ? 'o' : 'n'));
+}
+
+// a game hook told each screen space draw's box (pixels of the game's frame), for its menus (d3d::OnScreenDraw)
+d3d::ScreenDrawFn g_screen_fn = nullptr;
+
+// the box of a screen space (XYZRHW) draw's vertices from stream 0: positions are its first four floats
+void ReportScreenBox(uint32_t start, uint32_t count, const uint16_t* indices) {
+    if (!g_screen_fn || !count || !gpu::IsPretransformed(g_state)) return;
+    const auto& s = g_state.streams[0];
+    if (!s.vb || s.stride < 16) return;
+    uint32_t data = mem::VirtualFromPhysical(R32(s.vb + 4));
+    if (!data) return;
+    float x0 = 1e30f, y0 = 1e30f, x1 = -1e30f, y1 = -1e30f;
+    for (uint32_t i = 0; i < count && i < 4096; i++) {
+        uint32_t v = indices ? indices[i] : start + i;
+        const float* p = static_cast<const float*>(HostPtr(data + v * s.stride));
+        x0 = std::min(x0, p[0]);
+        y0 = std::min(y0, p[1]);
+        x1 = std::max(x1, p[0]);
+        y1 = std::max(y1, p[1]);
+    }
+    if (x0 <= x1) g_screen_fn(x0, y0, x1, y1);
 }
 
 // at Swap: the traced frame into the log, and the next one traced when asked
@@ -766,10 +793,13 @@ void ArmOcclusion(const float* m, bool gtao) {
     if (!g_backend || m[11] != 1.0f || m[15] != 0.0f || !m[0] || !m[5]) return;
     g_ao = {true, g_presents.load(), g_draws, {1 / m[0], 1 / m[5], m[8], m[9], m[14], m[10], 0, 0, 0, gtao ? 1.0f : 0.0f}};
     g_ao_clears = 0;
+    g_ao_blended = 0;
     Trace('C');
 }
 
 void TraceFrame() { g_trace_asked = true; }
+
+void OnScreenDraw(ScreenDrawFn fn) { g_screen_fn = fn; }
 
 void Occlusion() {
     std::lock_guard<std::recursive_mutex> lock(g_lock);
@@ -1362,6 +1392,7 @@ HLE_STDCALL(D3DDevice_DrawVertices, 3) {
     SyncDeferred();
     g_draws++;
     BeforeDraw(false);
+    ReportScreenBox(a[1], a[2], nullptr);
     if (g_backend) g_backend->Draw(g_state, a[0], a[1], a[2], nullptr);
     return 0;
 }
@@ -1373,6 +1404,7 @@ HLE_STDCALL(D3DDevice_DrawIndexedVertices, 3) {
     const uint8_t* indices = a[2] ? static_cast<const uint8_t*>(HostPtr(a[2])) : nullptr;
     g_draws++;
     BeforeDraw(false);
+    ReportScreenBox(0, a[1], reinterpret_cast<const uint16_t*>(indices));
     if (g_backend) g_backend->Draw(g_state, a[0], 0, a[1], indices);
     return 0;
 }
@@ -1414,6 +1446,7 @@ void DrawUp(uint32_t prim, uint32_t count, const void* vertices, uint32_t stride
     g_state.streams[0] = {UpVertices(vertices, used * stride), stride};
     g_draws++;
     BeforeDraw(true);
+    ReportScreenBox(0, count, indices);
     g_backend->Draw(g_state, prim, 0, count, reinterpret_cast<const uint8_t*>(indices));
     g_state.streams[0] = stream;
 }
