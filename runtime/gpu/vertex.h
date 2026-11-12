@@ -9,6 +9,8 @@ namespace gpu {
 
 enum class Topology : uint8_t { Points, Lines, Triangles };
 
+bool IsPretransformed(const State& s);  // the bound FVF has XYZRHW positions: screen space (HUD, menus, text)
+
 // how the vertex shader finishes an element the input assembler reads raw, 4 bits per register in Assembled::decode
 enum VertexDecode : uint8_t {
     kDecodeNone,

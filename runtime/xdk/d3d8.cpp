@@ -12,6 +12,7 @@
 #include <atomic>
 #include <chrono>
 #include <map>
+#include <string>
 #include <thread>
 #include <unordered_map>
 #include <unordered_set>
@@ -632,11 +633,68 @@ struct ArmedOcclusion {
     float p[gpu::kOcclusionParams] = {};
 };
 ArmedOcclusion g_ao;
+uint32_t g_ao_clears = 0;             // depth clears since arming
 constexpr uint64_t kWorldDraws = 48;  // draws since arming that make a world, not a sky pass ahead of it
+
+// F9: one frame's draws and depth clears into the log, as runs (letters at BeforeDraw),
+// Z a depth clear, A ambient occlusion, C the world camera armed
+std::atomic<bool> g_trace_asked{false};
+bool g_tracing = false;
+std::string g_trace;
+char g_trace_last = 0;
+uint32_t g_trace_run = 0;
+
+void TraceFlush() {
+    if (!g_trace_run) return;
+    g_trace += g_trace_last;
+    if (g_trace_run > 1) g_trace += std::to_string(g_trace_run);
+    g_trace += ' ';
+    g_trace_run = 0;
+}
+
+void Trace(char c) {
+    if (!g_tracing) return;
+    if (c != g_trace_last) TraceFlush();
+    g_trace_last = c;
+    g_trace_run++;
+}
+
+void RunOcclusion();
+
+// Each draw, before it goes: traced, and ambient occlusion goes in ahead of the first particle or screen space draw
+// after the world when no depth clear (for the weapon) has taken it yet (a frame without a weapon in view).
+// Particles (smoke, dust, sparks) are DrawVerticesUP draws, blended and not writing depth, the last of the world: the
+// occlusion goes in ahead of the first of them so they are not darkened by what they cover (smoke showed the outlines
+// of what was behind it)
+void BeforeDraw(bool up) {
+    bool screen = gpu::IsPretransformed(g_state);
+    bool blend = g_state.simple[gpu::kMBlendEnable / 4] != 0, zwrite = g_state.simple[gpu::kMZWriteEnable / 4] != 0;
+    bool particle = up && blend && !zwrite && !screen;
+    if ((screen || particle) && g_ao.armed && g_draws - g_ao.draws >= kWorldDraws) RunOcclusion();
+    if (!g_tracing) return;
+    // vertex buffer draws: o opaque, B blended writing depth, b blended not, n neither; DrawVerticesUP's (particles
+    // and the like): u blended not writing depth, U any other; h screen space
+    if (screen) Trace('h');
+    else if (up) Trace(blend && !zwrite ? 'u' : 'U');
+    else Trace(blend ? (zwrite ? 'B' : 'b') : (zwrite ? 'o' : 'n'));
+}
+
+// at Swap: the traced frame into the log, and the next one traced when asked
+void TraceSwap() {
+    if (g_tracing) {
+        TraceFlush();
+        g_trace_last = 0;
+        LOGR("frame trace: %s", g_trace.c_str());
+        g_trace.clear();
+        g_tracing = false;
+    }
+    if (g_trace_asked.exchange(false)) g_tracing = true;
+}
 
 void RunOcclusion() {
     if (!g_ao.armed || g_ao.frame != g_presents.load() || !g_backend) return;
     g_ao.armed = false;
+    Trace('A');
     g_backend->Occlusion(g_state, g_ao.p);
 }
 
@@ -670,6 +728,7 @@ HLE_STDCALL(D3DDevice_Swap, 1) {
         app::FinishHandover();
     }
     std::lock_guard<std::recursive_mutex> lock(g_lock);
+    TraceSwap();
     g_presents++;
     // the kept display is shown until the title presents its own
     kernel::SetSavedDataAddress(0);
@@ -706,7 +765,11 @@ void ArmOcclusion(const float* m, bool gtao) {
     // a perspective projection only (row vectors: m23 = 1, m33 = 0)
     if (!g_backend || m[11] != 1.0f || m[15] != 0.0f || !m[0] || !m[5]) return;
     g_ao = {true, g_presents.load(), g_draws, {1 / m[0], 1 / m[5], m[8], m[9], m[14], m[10], 0, 0, 0, gtao ? 1.0f : 0.0f}};
+    g_ao_clears = 0;
+    Trace('C');
 }
+
+void TraceFrame() { g_trace_asked = true; }
 
 void Occlusion() {
     std::lock_guard<std::recursive_mutex> lock(g_lock);
@@ -748,7 +811,12 @@ HLE_STDCALL(D3DDevice_Clear, 6) {
     std::lock_guard<std::recursive_mutex> lock(g_lock);
     const uint8_t* rects = a[0] && a[1] ? static_cast<const uint8_t*>(HostPtr(a[1])) : nullptr;
     constexpr uint32_t kClearZFlag = 1;  // D3DCLEAR_ZBUFFER
-    if ((a[2] & kClearZFlag) && g_ao.armed && g_draws - g_ao.draws >= kWorldDraws) RunOcclusion();
+    if (a[2] & kClearZFlag) {
+        Trace('Z');
+        // the world is drawn: enough draws for one, not a sky pass ahead of it
+        g_ao_clears++;
+        if (g_ao.armed && g_draws - g_ao.draws >= kWorldDraws) RunOcclusion();
+    }
     if (g_backend) g_backend->Clear(g_state, a[0], rects, a[2], a[3], ArgF(a, 4), a[5]);
     return 0;
 }
@@ -1293,6 +1361,7 @@ HLE_STDCALL(D3DDevice_DrawVertices, 3) {
     Walk(Dev(kDevPush));  // a visibility test begun since the last draw counts this one
     SyncDeferred();
     g_draws++;
+    BeforeDraw(false);
     if (g_backend) g_backend->Draw(g_state, a[0], a[1], a[2], nullptr);
     return 0;
 }
@@ -1303,6 +1372,7 @@ HLE_STDCALL(D3DDevice_DrawIndexedVertices, 3) {
     SyncDeferred();
     const uint8_t* indices = a[2] ? static_cast<const uint8_t*>(HostPtr(a[2])) : nullptr;
     g_draws++;
+    BeforeDraw(false);
     if (g_backend) g_backend->Draw(g_state, a[0], 0, a[1], indices);
     return 0;
 }
@@ -1343,6 +1413,7 @@ void DrawUp(uint32_t prim, uint32_t count, const void* vertices, uint32_t stride
     auto stream = g_state.streams[0];
     g_state.streams[0] = {UpVertices(vertices, used * stride), stride};
     g_draws++;
+    BeforeDraw(true);
     g_backend->Draw(g_state, prim, 0, count, reinterpret_cast<const uint8_t*>(indices));
     g_state.streams[0] = stream;
 }

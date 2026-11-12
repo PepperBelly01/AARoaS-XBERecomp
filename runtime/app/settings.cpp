@@ -8,6 +8,7 @@
 #include <windows.h>
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <fstream>
 #include <mutex>
@@ -27,6 +28,17 @@ const char* kModes[] = {"fullscreen", "borderless", "windowed"};
 
 std::filesystem::path File() { return ExeDir() / kGame.settings; }
 
+// "Move Forward" as move_forward
+std::string KeySlug(const char* name) {
+    std::string out;
+    for (const char* c = name; *c; c++) {
+        if (std::isalnum(uint8_t(*c))) out += char(std::tolower(uint8_t(*c)));
+        else if (!out.empty() && out.back() != '_') out += '_';
+    }
+    while (!out.empty() && out.back() == '_') out.pop_back();
+    return out;
+}
+
 }  // namespace
 
 Settings& Get() {
@@ -40,13 +52,27 @@ Settings g_defaults;
 
 const Settings& Defaults() { return g_defaults; }
 
+void ApplyKeys() {
+    const Settings& s = Get();
+    std::vector<input::KeyBind> binds;
+    for (size_t i = 0; i < kGame.key_actions.size() && i < s.keys.size(); i++) {
+        const input::KeyAction& a = kGame.key_actions[i];
+        for (uint16_t k : s.keys[i])
+            if (k) binds.push_back({k, a.target, a.index});
+    }
+    input::SetKeys(binds);
+}
+
 void Load() {
     Settings& s = Get();
+    s.keys.clear();
+    for (const input::KeyAction& a : kGame.key_actions) s.keys.push_back({a.keys[0], a.keys[1]});
     g_defaults = s;
     toml::table t;
     try {
         t = toml::parse_file(File().string());
     } catch (...) {
+        ApplyKeys();
         return;
     }
     std::string mode = t["display_mode"].value_or(std::string(kModes[uint32_t(s.display_mode)]));
@@ -67,6 +93,23 @@ void Load() {
     s.msaa = std::min(t["msaa"].value_or(s.msaa), 8u);
     s.ambient_occlusion = std::min(t["ambient_occlusion"].value_or(s.ambient_occlusion), 2u);
     s.ao_strength = std::clamp(t["ao_strength"].value_or(s.ao_strength), 25u, 200u);
+    s.mouse_x = std::clamp(t["mouse_x"].value_or(s.mouse_x), 0.1f, 10.0f);
+    s.mouse_y = std::clamp(t["mouse_y"].value_or(s.mouse_y), 0.1f, 10.0f);
+    s.invert_mouse_x = t["invert_mouse_x"].value_or(s.invert_mouse_x);
+    s.invert_mouse_y = t["invert_mouse_y"].value_or(s.invert_mouse_y);
+    s.vibration = t["vibration"].value_or(s.vibration);
+    s.pad_invert_x = t["pad_invert_x"].value_or(s.pad_invert_x);
+    s.pad_invert_y = t["pad_invert_y"].value_or(s.pad_invert_y);
+    if (const toml::table* keys = t["keys"].as_table()) {
+        for (size_t i = 0; i < kGame.key_actions.size(); i++) {
+            const toml::array* a = (*keys)[KeySlug(kGame.key_actions[i].name)].as_array();
+            if (!a) continue;
+            for (size_t j = 0; j < 2; j++) {
+                int64_t k = j < a->size() ? (*a)[j].value_or(int64_t(0)) : 0;
+                s.keys[i][j] = k > 0 && k < input::kKeyCount ? uint16_t(k) : 0;
+            }
+        }
+    }
     s.custom_textures = t["custom_textures"].value_or(s.custom_textures);
     s.dump_textures = t["dump_textures"].value_or(s.dump_textures);
     s.texture_dump_format = std::min(t["texture_dump_format"].value_or(s.texture_dump_format), 1u);
@@ -78,6 +121,7 @@ void Load() {
     }
     if (kGame.load) kGame.load(&t);
     audio::SetOutputMode(s.audio_output);
+    ApplyKeys();
 }
 
 namespace {
@@ -100,6 +144,13 @@ toml::table Table() {
                   {"msaa", int64_t(s.msaa)},
                   {"ambient_occlusion", int64_t(s.ambient_occlusion)},
                   {"ao_strength", int64_t(s.ao_strength)},
+                  {"mouse_x", double(s.mouse_x)},
+                  {"mouse_y", double(s.mouse_y)},
+                  {"invert_mouse_x", s.invert_mouse_x},
+                  {"invert_mouse_y", s.invert_mouse_y},
+                  {"vibration", s.vibration},
+                  {"pad_invert_x", s.pad_invert_x},
+                  {"pad_invert_y", s.pad_invert_y},
                   {"custom_textures", s.custom_textures},
                   {"dump_textures", s.dump_textures},
                   {"texture_dump_format", int64_t(s.texture_dump_format)},
@@ -108,6 +159,12 @@ toml::table Table() {
     for (const Option& o : kGame.options) {
         if (o.flag) t.insert(o.key, *o.flag);
         else t.insert(o.key, int64_t(*o.value));
+    }
+    if (!kGame.key_actions.empty()) {
+        toml::table keys;
+        for (size_t i = 0; i < kGame.key_actions.size() && i < s.keys.size(); i++)
+            keys.insert(KeySlug(kGame.key_actions[i].name), toml::array{int64_t(s.keys[i][0]), int64_t(s.keys[i][1])});
+        t.insert("keys", std::move(keys));
     }
     if (kGame.save) kGame.save(&t);
     return t;

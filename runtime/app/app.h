@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 #include <cstdint>
 #include <filesystem>
 #include <mutex>
@@ -6,9 +7,7 @@
 #include <utility>
 #include <vector>
 
-namespace input {
-struct Pad;
-}
+#include "core/input.h"
 
 // the host side: window, settings
 namespace app {
@@ -33,18 +32,27 @@ struct Settings {
     bool smaa = false;               // SMAA over the finished frame, HUD included
     uint32_t msaa = 0;               // samples a pixel of the scene, 0 off (2, 4 or 8)
     uint32_t ambient_occlusion = 0;  // 0 off, 1 SSAO, 2 GTAO (GameInfo::ambient_occlusion)
+    // mouse look: times the mouse's raw counts, each axis (GameInfo::mouse_y_ratio evens out the game's own)
+    float mouse_x = 1.0f, mouse_y = 1.0f;
+    bool invert_mouse_x = false, invert_mouse_y = false;
+    // per GameInfo::key_actions, its two keys (input::KeyName codes, 0 none); filled with the defaults at load
+    std::vector<std::array<uint16_t, 2>> keys;
+    bool vibration = true;
+    bool pad_invert_x = false, pad_invert_y = false;  // the look stick
     uint32_t ao_strength = 50;       // percent of the occlusion's darkening, 25 to 200 (50 looked right in play)
     bool custom_textures = true;     // images in textures\replacement\ beside the exe replace the game's
     bool dump_textures = false;      // each texture once into textures\dumps\ beside the exe
     uint32_t texture_dump_format = 0;  // 0 PNG, 1 DDS
     uint32_t audio_output = 0;         // audio::kOutputAuto, Stereo, Surround or Mono
     std::string join_ip;                   // co-op: a host past the LAN the system link search also asks
+    bool operator==(const Settings&) const = default;
 };
 
 Settings& Get();
 const Settings& Defaults();  // the settings before the file loaded: the SDK's, with the game's own defaults
 void Load();
 void Save();
+void ApplyKeys();  // Settings::keys into the input layer
 void LogSettings();  // every setting, as the settings file has them
 void LogSystem();    // the machine and the settings, at a run's start
 void ApplyDisplay();  // any thread
@@ -89,7 +97,7 @@ std::recursive_mutex& UiLock();
 
 // F10 settings overlay (menu.cpp): while open the game's controllers read idle. Its text is kMenuFontPx on a 720
 // line frame, scaled with the frame's height
-inline constexpr float kMenuFontPx = 17.0f;
+inline constexpr float kMenuFontPx = 13.0f;
 bool MenuOpen();
 void ToggleMenu();
 void DrawMenu(double fps);  // each frame inside the ImGui frame, UiLock held; also the FPS counter
@@ -120,6 +128,10 @@ struct GameInfo {
     // the highest frame rate the game's timing holds up at, 0 for none: Pace and the overlay keep under it
     uint32_t max_fps = 0;
     bool ambient_occlusion = false;  // the game's hooks call d3d::Occlusion: the overlay offers it
+    // keyboard and mouse on controller port 0: the overlay's keyboard list with its defaults (core/input.h); empty:
+    // none
+    std::vector<input::KeyAction> key_actions;
+    float mouse_y_ratio = 1.0f;  // vertical mouse look over horizontal, for the game's own difference between them
     // the settings file's toml::table, for what options cannot hold
     void (*load)(const void* table);
     void (*save)(void* table);

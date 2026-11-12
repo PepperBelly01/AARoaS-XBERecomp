@@ -13,6 +13,8 @@
 
 namespace input {
 
+void MergeKeyboard(int port, Pad& p);  // keyboard.cpp
+
 namespace {
 
 // a controller takes the lowest free port when it is plugged in and keeps it until it is unplugged
@@ -107,8 +109,12 @@ Pad Poll(int port) {
             p.ly = int16_t(-1 - axis(SDL_GAMEPAD_AXIS_LEFTY));
             p.rx = int16_t(axis(SDL_GAMEPAD_AXIS_RIGHTX));
             p.ry = int16_t(-1 - axis(SDL_GAMEPAD_AXIS_RIGHTY));
+            // the overlay's Controller tab: the look stick inverted
+            if (app::Get().pad_invert_x) p.rx = int16_t(-1 - p.rx);
+            if (app::Get().pad_invert_y) p.ry = int16_t(-1 - p.ry);
         }
     }
+    MergeKeyboard(port, p);
     if (app::kGame.pad) app::kGame.pad(port, p);
     // the settings overlay has the controller: the game sees it still plugged in, nothing pressed
     if (app::MenuOpen()) {
@@ -135,6 +141,7 @@ uint16_t HeldOnAnyController() {
 // the motors run until set again
 void Rumble(int port, uint16_t left, uint16_t right) {
     if (app::kGame.rumble) app::kGame.rumble(port, left, right);
+    if (!app::Get().vibration) left = right = 0;
     std::lock_guard lock(g_lock);
     if (port >= 0 && port < 4 && g_pads[port]) SDL_RumbleGamepad(g_pads[port], left, right, 0);
 }

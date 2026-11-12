@@ -16,5 +16,6 @@ uint32_t Presents();
 // (games clear depth before the first person weapon), or at Occlusion, whichever comes first
 void ArmOcclusion(const float* m, bool gtao);
 void Occlusion();
+void TraceFrame();  // the next frame's draws and depth clears into the log (F9)
 
 }  // namespace d3d

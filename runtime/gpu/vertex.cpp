@@ -405,6 +405,8 @@ bool AssembleConverted(const State& s, const Inputs& inputs, const DrawRange& d,
 
 }  // namespace
 
+bool IsPretransformed(const State& s) { return Pretransformed(s); }
+
 void FvfInputs(uint32_t fvf, VertexShader& vs) {
     vs.inputs.fill({});
     uint32_t off = 0;

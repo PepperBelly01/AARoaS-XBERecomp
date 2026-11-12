@@ -20,6 +20,8 @@ bool g_world = false;      // the running UpdateMatrices is the frame's first
 
 }  // namespace
 
+void NoteWorldCamera(uint8_t* base, uint32_t node);  // mouse.cpp
+
 // Ambient occlusion is armed with the world camera's projection as this frame builds it, and goes in once the world
 // is drawn: before the depth clear that comes ahead of the first person weapon, else (a cutscene: no weapon) as the
 // frame's second camera is set up. The weapon and the HUD come after it.
@@ -29,6 +31,7 @@ X86_FUNC(sub_001F3E50) {
     g_world = frame != g_frame;
     g_frame = frame;
     if (!g_world && app::Get().ambient_occlusion) d3d::Occlusion();
+    if (g_world) NoteWorldCamera(base, ctx.ecx);  // mouse.cpp: the view rotation for direct mouse look
     __imp__sub_001F3E50(ctx, base);
     g_world = false;
 }

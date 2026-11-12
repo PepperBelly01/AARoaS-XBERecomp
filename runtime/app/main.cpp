@@ -24,6 +24,7 @@
 #include "gpu/backend.h"
 #include "image_symbols.h"
 #include "kernel/kernel.h"
+#include "xdk/d3d8.h"
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND, UINT, WPARAM, LPARAM);
 
@@ -129,12 +130,22 @@ void ApplyNow() {
 LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     // F10 arrives as a system key (it would open the window menu); Escape closes the overlay too
     if ((msg == WM_SYSKEYDOWN || msg == WM_KEYDOWN) && !(lp & (1 << 30))) {
+        if (wp == VK_F9) {  // one frame's draw order into the log, for diagnosing
+            d3d::TraceFrame();
+            return 0;
+        }
+        if (wp == VK_ESCAPE && input::CapturingKey()) {  // cancels a rebinding, the overlay stays
+            input::CancelKeyCapture();
+            return 0;
+        }
         if (wp == VK_F10 || (wp == VK_ESCAPE && MenuOpen())) {
             ToggleMenu();
             return 0;
         }
     }
     if (msg == WM_SYSKEYUP && wp == VK_F10) return 0;
+    // keyboard and mouse into the game (core/keyboard.cpp)
+    if (input::OnWindowMessage(hwnd, msg, wp, lp)) return msg == WM_SETCURSOR ? TRUE : 0;
     {
         std::lock_guard lock(UiLock());
         if (ImGui::GetCurrentContext() && ImGui_ImplWin32_WndProcHandler(hwnd, msg, wp, lp)) return 1;
@@ -299,19 +310,25 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
     ImGuiIO& io = ImGui::GetIO();
     io.IniFilename = nullptr;
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard | ImGuiConfigFlags_NavEnableGamepad;
-    // Windows' UI font, made at the size the monitor's height wants; ImGui's own 13 px font scaled up looks blocky
+    // Windows' fonts, made at the size the monitor's height wants (ImGui's own 13 px font scaled up looks blocky):
+    // Consolas for the overlay's terminal look, then Segoe UI Bold for the FPS counter
     {
         wchar_t fonts[MAX_PATH];
         UINT n = GetWindowsDirectoryW(fonts, MAX_PATH);
-        std::filesystem::path font = std::filesystem::path(std::wstring(fonts, n)) / L"Fonts" / L"segoeui.ttf";
+        std::filesystem::path dir = std::filesystem::path(std::wstring(fonts, n)) / L"Fonts";
         float px = std::clamp(float(app::Desktop().height) / 720.0f * app::kMenuFontPx, app::kMenuFontPx, 4 * app::kMenuFontPx);
-        std::error_code ec;
-        if (!std::filesystem::exists(font, ec) || !io.Fonts->AddFontFromFileTTF(font.string().c_str(), px))
-            io.Fonts->AddFontDefault();
+        auto add = [&](const wchar_t* file, float size) {
+            std::error_code ec;
+            std::filesystem::path font = dir / file;
+            return std::filesystem::exists(font, ec) && io.Fonts->AddFontFromFileTTF(font.string().c_str(), size);
+        };
+        if (!add(L"consola.ttf", px) && !add(L"segoeui.ttf", px)) io.Fonts->AddFontDefault();
+        add(L"segoeuib.ttf", px * 1.45f);
     }
     ImGui_ImplWin32_Init(app::g_hwnd);
 
     input::Init();
+    input::AttachWindow(app::g_hwnd);
     if (app::kGame.window) app::kGame.window(app::g_hwnd);
     std::wstring hdd = app::Instance() > 1 ? L"hdd" + std::to_wstring(app::Instance()) : L"hdd";
     if (app::Instance())

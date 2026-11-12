@@ -192,9 +192,21 @@ automatically through `../../cmake/XbeRecomp.cmake`; no `sdk\` copy is needed.
   frame.txt` (every draw: shader, state, first vertices, constants) plus targets and shaders.
 
 ## PC features done (2026-11-11, user confirmed each)
-- **F10 settings overlay** (`runtime\app\menu.cpp`, Segoe UI sized to the monitor): display mode, resolution, render
-  resolution, aspect (4:3 / 16:9), field of view, max frame rate, V-Sync, FPS counter, Hide HUD, anisotropic
-  filtering, audio output, Skip Intros. Saved to settings.toml as changed; the controller reads idle while it is open.
+- **F10 settings overlay** (`runtime\app\menu.cpp`, Consolas sized to the monitor, laid out after the SCDA build's
+  from the user's screenshots): tabs Recomp Settings / Mouse and Keyboard / Controller (Q/E switch), rows stepped
+  with arrows, key rows with two slots (click then press; right click or Delete clears; Esc cancels), Back /
+  Defaults (the tab shown) / Apply. Changes go to a copy until Apply; the controller reads idle while it is open.
+  The exact SCDA look could be checked against `Reference\SCDA-XBERecomp-3\src\app\menu.cpp`.
+- **Keyboard and mouse** (`runtime\core\keyboard.cpp`, `src\game\mouse.cpp`): keys and mouse buttons press
+  controller port 0 through GameInfo::key_actions (rebindable, saved as [keys] in settings.toml; Slow Walk pushes the
+  keyboard's stick 50%, 35% is in the game's dead zone). Mouse look is direct: raw counts (WM_INPUT) go into the
+  PlayerController's Rotation, viewport +0x34 (UPlayer::Actor) +0x124 (Pitch, Yaw), 4 units a count at 1.0, scaled
+  by the camera's FOV / 75 when aiming. The game's own path (UEngine::InputEvent IK_MouseX/Y after UpdateInput
+  0x2F4D00) had a console turn curve: flicks accelerated. That location is checked against the world camera's
+  rotation (camera scene node +0x1E0) and searched for again if the camera does not follow. The cached
+  `hdd\Z\System\xboxuser.ini` gets MouseAccelThreshold=0 and MouseSmoothingMode=0 at each start (PatchUserIni).
+  User confirmed: movement, keys, mouse (feels much better), slow walk. Known: the mouse turns the view behind the
+  pause menu (no game menu detection yet, input::SetGameMenu is never called).
 - **Widescreen** (`src\game\widescreen.cpp`): FCameraSceneNode::UpdateMatrices 0x1F3E50 builds the projection with
   FPerspectiveMatrix 0x1F1AC0 (call returns to 0x1F42F7); M[0][0] *= 0.75 on 16:9 (Hor+).
 - **Field of View**: the world camera (75 deg, first UpdateMatrices of each Swap) gets M00 and M11 / FovScale; the
@@ -221,15 +233,21 @@ automatically through `../../cmake/XbeRecomp.cmake`; no `sdk\` copy is needed.
   across) take one anchor, matched to last frame by box so typed out text does not flicker.
 - **Ambient occlusion** (SSAO/GTAO, user confirmed): kAoHlsl in d3d12.cpp from the reference, depth reversed (z
   buffer: view z = -m32 / (depth - (1 - m22)) from the camera projection; w buffer from the draws' zparams). Armed
-  in widescreen.cpp with the world camera's projection (d3d::ArmOcclusion); d3d8.cpp runs it before the first depth
-  clear after 48+ draws (the game clears depth before the first person weapon), else at the second camera
-  (cutscenes). AO Strength (default 50%: the user found 50 to 75% right, more too much).
+  in widescreen.cpp with the world camera's projection (d3d::ArmOcclusion); d3d8.cpp runs it, once 48+ draws are
+  in, before the first of: a particle draw (DrawVerticesUP, blended, no depth write: smoke showed AO through it), a
+  screen space draw (frames with no weapon have no clear after the world: AO dropped out), the depth clear before
+  the weapon; else at the second camera (cutscenes). A "second depth clear" rule was tried and ran it on the sky
+  pass. F9 logs one frame's draw order ("frame trace:"), letters at BeforeDraw. AO Strength (default 50%: the user
+  found 50 to 75% right, more too much). User confirmed the smoke and drop out fixes.
 - **Frame rate**: GameInfo::max_fps = 60. Weapon recoil (and maybe more) is applied per frame: at 200 FPS it threw
   the view. The user wants uncapped frame rates later: find the recoil code and scale it by frame time.
 
 ## Future: PC features the user wants (paused 2026-11-10)
-Still to do: frame rate independent recoil and timing (then lift max_fps), mouse and keyboard (needs this game's camera input), SMAA, ambient occlusion, a controller combo to
-open the overlay, overlay navigation for non-Xbox pads (ImGui's backend reads XInput pad 0 only).
+Still to do: the game's menus with the mouse (hover, click, cursor free; detect a game menu, then
+input::SetGameMenu, which also stops mouse look behind the pause menu; see the reference's mouse.cpp and cursor.cpp),
+a freelook key (the user's idea: the camera pans while the body and weapon keep facing ahead, as the view does now
+behind the pause menu), frame rate independent recoil and timing (then lift max_fps), a controller combo to open the
+overlay, overlay navigation for non-Xbox pads (ImGui's backend reads XInput pad 0 only).
 
 Mouse and keyboard, 16:9 widescreen, resolutions up to 4K, FoV, SMAA, ambient occlusion, and a settings overlay.
 - **Our SDK today**: no in-game overlay (`runtime\app` has no menu.cpp), though Dear ImGui is linked and the window
