@@ -178,6 +178,11 @@ void DrawGraphics() {
         if (Pick("Ambient Occlusion", s.ambient_occlusion, {{0, "Off"}, {1, "SSAO"}, {2, "GTAO"}})) Save();
         Hint("Darkens creases, corners and where things meet the ground, from the scene's depth. GTAO is the "
              "more accurate and a little slower.");
+        if (s.ambient_occlusion) {
+            std::vector<Choice> strengths;
+            for (uint32_t p : {25u, 50u, 75u, 100u, 125u, 150u, 200u}) strengths.push_back({p, std::to_string(p) + "%"});
+            if (Pick("AO Strength", s.ao_strength, strengths)) Save();
+        }
     }
     Hint("Smooths jagged edges over the whole picture, HUD included, alpha tested fences and foliage too. "
          "Slightly softer image.");

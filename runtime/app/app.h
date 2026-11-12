@@ -33,6 +33,7 @@ struct Settings {
     bool smaa = false;               // SMAA over the finished frame, HUD included
     uint32_t msaa = 0;               // samples a pixel of the scene, 0 off (2, 4 or 8)
     uint32_t ambient_occlusion = 0;  // 0 off, 1 SSAO, 2 GTAO (GameInfo::ambient_occlusion)
+    uint32_t ao_strength = 50;       // percent of the occlusion's darkening, 25 to 200 (50 looked right in play)
     bool custom_textures = true;     // images in textures\replacement\ beside the exe replace the game's
     bool dump_textures = false;      // each texture once into textures\dumps\ beside the exe
     uint32_t texture_dump_format = 0;  // 0 PNG, 1 DDS

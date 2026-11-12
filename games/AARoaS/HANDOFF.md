@@ -223,7 +223,7 @@ automatically through `../../cmake/XbeRecomp.cmake`; no `sdk\` copy is needed.
   buffer: view z = -m32 / (depth - (1 - m22)) from the camera projection; w buffer from the draws' zparams). Armed
   in widescreen.cpp with the world camera's projection (d3d::ArmOcclusion); d3d8.cpp runs it before the first depth
   clear after 48+ draws (the game clears depth before the first person weapon), else at the second camera
-  (cutscenes). GTAO looks strong; a strength slider may be wanted.
+  (cutscenes). AO Strength (default 50%: the user found 50 to 75% right, more too much).
 - **Frame rate**: GameInfo::max_fps = 60. Weapon recoil (and maybe more) is applied per frame: at 200 FPS it threw
   the view. The user wants uncapped frame rates later: find the recoil code and scale it by frame time.
 

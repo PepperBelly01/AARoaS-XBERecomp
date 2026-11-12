@@ -3724,7 +3724,8 @@ float2 occlusion_blur(float4 pos : SV_Position) : SV_Target {
 }
 float4 occlusion_apply(float4 pos : SV_Position) : SV_Target {
     float z, a = Smooth(pos.xy, z);
-    return float4(a.xxx, 1);
+    // fog.x: strength, the share of the darkening kept (above 1 deepens it)
+    return float4(saturate(1 - (1 - a) * fog.x).xxx, 1);
 }
 )";
 
@@ -3830,7 +3831,7 @@ void D3D12Backend::Occlusion(const State& s, const float p[kOcclusionParams]) {
     float rw = float(rect.right - rect.left), rh = float(rect.bottom - rect.top);
     // kAoHlsl's proj, zp, vp, opt (radius, most pixels, blur step) and fog
     float c[20] = {p[0], p[1], p[2], p[3], zp0, zp1, 0, 0, float(rect.left), float(rect.top), rw, rh,
-                   kAoRadius, kAoMaxSpan * rh, 0, 0, 0, 0, 0, 0};
+                   kAoRadius, kAoMaxSpan * rh, 0, 0, app::Get().ao_strength / 100.0f, 0, 0, 0};
     auto rtv = [&](int i) { return Cpu(rtv_heap_.Get(), ao_rtv_[i], rtv_inc_); };
     Transition(ao_[0].Get(), ao_state_[0], D3D12_RESOURCE_STATE_RENDER_TARGET);
     if (!DrawAoPass(p[9] ? "gtao" : "occlusion", kAoFormat, 1, false, rtv(0), depth, nullptr, c, rect, rt->w, rt->h))
