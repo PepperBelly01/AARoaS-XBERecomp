@@ -17,10 +17,13 @@ constexpr uint32_t kCameraProjection = 0x1F42F7;  // that call's return address
 // camera, so the class cannot tell them apart; the order can.
 uint32_t g_frame = ~0u;    // the Swap count at the last UpdateMatrices
 bool g_world = false;      // the running UpdateMatrices is the frame's first
+float g_node_fov = 0;      // the world camera node's FOV this frame
 
 }  // namespace
 
 void NoteWorldCamera(uint8_t* base, uint32_t node);  // mouse.cpp
+float ZoomHold(float fov);                             // aim_assist.cpp
+void AimAfterTick(uint8_t* base, uint32_t node);        // mouse.cpp
 
 // Ambient occlusion is armed with the world camera's projection as this frame builds it, and goes in once the world
 // is drawn: before the depth clear that comes ahead of the first person weapon, else (a cutscene: no weapon) as the
@@ -31,7 +34,9 @@ X86_FUNC(sub_001F3E50) {
     g_world = frame != g_frame;
     g_frame = frame;
     if (!g_world && app::Get().ambient_occlusion) d3d::Occlusion();
+    if (g_world) AimAfterTick(base, ctx.ecx);     // mouse.cpp: Aim Assist off, the lock's pull taken back out
     if (g_world) NoteWorldCamera(base, ctx.ecx);  // mouse.cpp: the view rotation for direct mouse look
+    if (g_world) g_node_fov = X86_MEMF32(ctx.ecx + 0x1EC);  // the node's FOV, for the zoom hold
     __imp__sub_001F3E50(ctx, base);
     g_world = false;
 }
@@ -46,6 +51,10 @@ X86_FUNC(sub_001F1AC0) {
     // shown 16:9: the same height of view, 16:9 / 4:3 as much across
     if (app::Widescreen()) X86_MEMF32(matrix) *= 0.75f;
     if (g_world) {
+        // Aim Assist off: the game's zoom onto a held target is not shown (aim_assist.cpp)
+        float r = ZoomHold(g_node_fov);
+        X86_MEMF32(matrix) *= r;
+        X86_MEMF32(matrix + 0x14) *= r;
         float s = app::FovScale();
         X86_MEMF32(matrix) /= s;
         X86_MEMF32(matrix + 0x14) /= s;

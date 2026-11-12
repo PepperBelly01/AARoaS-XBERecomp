@@ -104,6 +104,29 @@ void Section(const char* name) {
     ImGui::Dummy({w, h + Em() * 0.3f});
 }
 
+// "(?)" after a row's label, its description in a tooltip under the mouse (it is also shown under the list for the
+// row the keyboard or controller is on)
+void HelpMark(const char* label, const char* hint, ImVec2 row, float h) {
+    if (!hint || !*hint) return;
+    ImVec2 size = ImGui::CalcTextSize(Upper(label).c_str());
+    ImVec2 at{row.x + size.x + Em() * 0.5f, row.y + (h - Em()) * 0.5f};
+    ImVec2 mark = ImGui::CalcTextSize("(?)");
+    bool over = ImGui::IsMouseHoveringRect(at, {at.x + mark.x, at.y + mark.y}, false) && ImGui::IsWindowHovered();
+    ImGui::GetWindowDrawList()->AddText(at, over ? kHeader : kDim, "(?)");
+    if (!over) return;
+    ImGui::PushStyleColor(ImGuiCol_PopupBg, ImGui::ColorConvertU32ToFloat4(IM_COL32(24, 27, 20, 245)));
+    ImGui::PushStyleColor(ImGuiCol_Border, ImGui::ColorConvertU32ToFloat4(kBorder));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {Em() * 0.6f, Em() * 0.45f});
+    ImGui::PushStyleVar(ImGuiStyleVar_PopupBorderSize, 1.0f);
+    ImGui::BeginTooltip();
+    ImGui::PushTextWrapPos(Em() * 24);
+    ImGui::TextUnformatted(hint);
+    ImGui::PopTextWrapPos();
+    ImGui::EndTooltip();
+    ImGui::PopStyleVar(2);
+    ImGui::PopStyleColor(2);
+}
+
 // an arrow box, pointing left or right; true when clicked
 bool Arrow(const char* id, ImVec2 at, float size, bool left) {
     ImGui::SetCursorScreenPos(at);
@@ -132,6 +155,7 @@ int Stepper(const char* label, const std::string& value, const char* hint) {
     if (focused && ImGui::IsKeyPressed(ImGuiKey_RightArrow)) step = 1;
     ImDrawList* dl = ImGui::GetWindowDrawList();
     Text(dl, {p.x + Em() * 0.15f, p.y + (h - Em()) * 0.5f}, kText, Upper(label));
+    HelpMark(label, hint, {p.x + Em() * 0.15f, p.y}, h);
     float box = std::round(h * 0.78f), top = p.y + (h - box) * 0.5f;
     float right = p.x + w - Em() * 0.15f, left = p.x + w * 0.665f;
     ImVec2 back = ImGui::GetCursorScreenPos();
@@ -322,6 +346,15 @@ void DrawRecomp() {
     }
 }
 
+// the game's aiming help (GameInfo::aim_assist), in both the Mouse and Keyboard and the Controller tabs
+constexpr const char* kAimAssistHint =
+    "The game's lock on. Sighted near an enemy, your aim is pulled onto them and held there inside a circle "
+    "around them, and jumps to the next enemy nearby. Off, your aim goes only where you move it, with the mouse "
+    "or the stick.";
+constexpr const char* kTargetZoomHint =
+    "Sighted on an enemy, the game zooms in by how far away they are, so each target has its own zoom. Off, the "
+    "zoom stays as your sights or scope have it. Works with Aim Assist on or off.";
+
 void DrawMouseKeyboard() {
     Settings& s = g_draft;
     Section("Mouse");
@@ -329,6 +362,10 @@ void DrawMouseKeyboard() {
     Slider("Vertical Sensitivity", s.mouse_y, 0.1f, 10.0f, 0.1f, "How far the view tilts for the mouse's movement.");
     Toggle("Invert X Axis", s.invert_mouse_x, "Mouse right turns left.");
     Toggle("Invert Y Axis", s.invert_mouse_y, "Mouse forward looks down.");
+    if (kGame.aim_assist) {
+        Toggle("Aim Assist", s.aim_assist, kAimAssistHint);
+        Toggle("Target Zoom", s.auto_zoom, kTargetZoomHint);
+    }
     Section("Keyboard");
     for (int i = 0; i < int(kGame.key_actions.size()); i++) KeyRow(i);
 }
@@ -339,6 +376,10 @@ void DrawController() {
     Toggle("Vibration", s.vibration, "Rumble on controllers that have it.");
     Toggle("Invert X Axis", s.pad_invert_x, "The look stick: right turns left.");
     Toggle("Invert Y Axis", s.pad_invert_y, "The look stick: up looks down.");
+    if (kGame.aim_assist) {  // the same settings as in Mouse and Keyboard
+        Toggle("Aim Assist", s.aim_assist, kAimAssistHint);
+        Toggle("Target Zoom", s.auto_zoom, kTargetZoomHint);
+    }
 }
 
 // the tab's settings back to their defaults, in the copy
@@ -368,6 +409,8 @@ void ResetTab() {
         s.mouse_y = d.mouse_y;
         s.invert_mouse_x = d.invert_mouse_x;
         s.invert_mouse_y = d.invert_mouse_y;
+        s.aim_assist = d.aim_assist;
+        s.auto_zoom = d.auto_zoom;
         s.keys = d.keys;
     } else {
         s.vibration = d.vibration;

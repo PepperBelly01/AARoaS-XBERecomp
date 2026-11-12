@@ -35,6 +35,8 @@ struct Settings {
     // mouse look: times the mouse's raw counts, each axis (GameInfo::mouse_y_ratio evens out the game's own)
     float mouse_x = 1.0f, mouse_y = 1.0f;
     bool invert_mouse_x = false, invert_mouse_y = false;
+    bool aim_assist = true;  // the game's own aim lock or assist, for a game whose hooks honour it (GameInfo::aim_assist)
+    bool auto_zoom = true;   // the game's zoom onto a target shown, with aim assist on or off (GameInfo::aim_assist)
     // per GameInfo::key_actions, its two keys (input::KeyName codes, 0 none); filled with the defaults at load
     std::vector<std::array<uint16_t, 2>> keys;
     bool vibration = true;
@@ -132,6 +134,7 @@ struct GameInfo {
     // none
     std::vector<input::KeyAction> key_actions;
     float mouse_y_ratio = 1.0f;  // vertical mouse look over horizontal, for the game's own difference between them
+    bool aim_assist = false;     // the game's hooks can turn its aim assist off (Settings::aim_assist): the overlay offers it
     // the settings file's toml::table, for what options cannot hold
     void (*load)(const void* table);
     void (*save)(void* table);

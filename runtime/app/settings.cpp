@@ -97,6 +97,8 @@ void Load() {
     s.mouse_y = std::clamp(t["mouse_y"].value_or(s.mouse_y), 0.1f, 10.0f);
     s.invert_mouse_x = t["invert_mouse_x"].value_or(s.invert_mouse_x);
     s.invert_mouse_y = t["invert_mouse_y"].value_or(s.invert_mouse_y);
+    s.aim_assist = t["aim_assist"].value_or(s.aim_assist);
+    s.auto_zoom = t["auto_zoom"].value_or(s.auto_zoom);
     s.vibration = t["vibration"].value_or(s.vibration);
     s.pad_invert_x = t["pad_invert_x"].value_or(s.pad_invert_x);
     s.pad_invert_y = t["pad_invert_y"].value_or(s.pad_invert_y);
@@ -148,6 +150,8 @@ toml::table Table() {
                   {"mouse_y", double(s.mouse_y)},
                   {"invert_mouse_x", s.invert_mouse_x},
                   {"invert_mouse_y", s.invert_mouse_y},
+                  {"aim_assist", s.aim_assist},
+                  {"auto_zoom", s.auto_zoom},
                   {"vibration", s.vibration},
                   {"pad_invert_x", s.pad_invert_x},
                   {"pad_invert_y", s.pad_invert_y},

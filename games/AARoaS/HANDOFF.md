@@ -207,6 +207,26 @@ automatically through `../../cmake/XbeRecomp.cmake`; no `sdk\` copy is needed.
   `hdd\Z\System\xboxuser.ini` gets MouseAccelThreshold=0 and MouseSmoothingMode=0 at each start (PatchUserIni).
   User confirmed: movement, keys, mouse (feels much better), slow walk. Known: the mouse turns the view behind the
   pause menu (no game menu detection yet, input::SetGameMenu is never called).
+- **Aim Assist and Target Zoom toggles** (`src\game\aim_assist.cpp`, the after-tick part in mouse.cpp; settings
+  `aim_assist`, `auto_zoom`; both in the Mouse and Keyboard and Controller tabs, any combination; user confirmed,
+  "especially in firefights"). Findings:
+  - This Xbox build keeps variable names in memory but not function names (TweakMe, SetLockTarget are gone). Name
+    entries: index, flags 0, hash link, text (12 bytes in); objects: +0x20 name, +0x24 class; classes: +0x2C super,
+    +0x38 first field, fields chained at +0x30, a property's byte offset at +0x44 (learned from Actor.Rotation, 0x124).
+    The same text sits elsewhere in memory too: each candidate index is tried on the class chain.
+  - The lock: SelectedTarget (+0xA0C, the red dot's) and LockTarget (+0xA04) on the AACPlayerController. While one is
+    held the tick turns Rotation toward it, up to ~700 units (4 deg) a tick, harder when near, inside a cone (the
+    Observation skill likely sizes it). Not a camera offset. Clearing LockTarget did nothing.
+  - What works: the tick starts from the player's true aim (so the game picks targets fairly; leading the aim before
+    the tick made it flip between two targets: judder), and after the tick, at the world camera's UpdateMatrices, the
+    pull is taken out of Rotation and the camera node (+0x1E0). Firing (trigger held + 150 ms; longer let the pull
+    through as kick: a rubber band), the aim is led by the last non-firing tick's pull so shots leave along the sights;
+    the kick up and small yaw jolt (300) are kept, the settle back down is the player's. Jumps (2000+) and pitch
+    limits are kept. Only while a target is held or within 1 s: undoing always broke cutscene pans.
+  - Target Zoom: with a target the game zooms by its distance (AutoZoom: FOV per target). Off, the projection is
+    drawn at the angle from before the target. The mouse's turn follows that angle either way (it slowed with the
+    zoom: felt like sticking).
+  - Release builds drop LOGI: diagnostics must use LOGR (one session of data was lost to this).
 - **Widescreen** (`src\game\widescreen.cpp`): FCameraSceneNode::UpdateMatrices 0x1F3E50 builds the projection with
   FPerspectiveMatrix 0x1F1AC0 (call returns to 0x1F42F7); M[0][0] *= 0.75 on 16:9 (Hor+).
 - **Field of View**: the world camera (75 deg, first UpdateMatrices of each Swap) gets M00 and M11 / FovScale; the
@@ -245,8 +265,9 @@ automatically through `../../cmake/XbeRecomp.cmake`; no `sdk\` copy is needed.
 ## Future: PC features the user wants (paused 2026-11-10)
 Still to do: the game's menus with the mouse (hover, click, cursor free; detect a game menu, then
 input::SetGameMenu, which also stops mouse look behind the pause menu; see the reference's mouse.cpp and cursor.cpp),
-a freelook key (the user's idea: the camera pans while the body and weapon keep facing ahead, as the view does now
-behind the pause menu), frame rate independent recoil and timing (then lift max_fps), a controller combo to open the
+a freelook key (the user's idea: the camera pans while the body and weapon keep facing ahead; the after-tick camera
+correction in mouse.cpp shows the camera can be set apart from Rotation, as the view already is behind the pause
+menu), frame rate independent recoil and timing (then lift max_fps), a controller combo to open the
 overlay, overlay navigation for non-Xbox pads (ImGui's backend reads XInput pad 0 only).
 
 Mouse and keyboard, 16:9 widescreen, resolutions up to 4K, FoV, SMAA, ambient occlusion, and a settings overlay.

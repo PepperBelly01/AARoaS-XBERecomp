@@ -48,6 +48,7 @@ const app::GameInfo app::kGame = {
                     {"D-Pad Right", input::PadTarget::Button, 3, {0x27, 0}},
                     {"Pause Menu", input::PadTarget::Button, 4, {0x1B, 0}}},
     .mouse_y_ratio = 1.0f,  // with acceleration off (mouse.cpp) the game turns and tilts alike
+    .aim_assist = true,     // aim_assist.cpp
     .load = nullptr,
     .save = nullptr,
     .init = PatchUserIni,  // mouse.cpp

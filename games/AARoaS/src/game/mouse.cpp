@@ -15,6 +15,13 @@
 #include "core/input.h"
 #include "xdk/hle.h"
 
+// LOG_FIRST at report level: a release build drops info lines
+#define REPORT_FIRST(n, ...)                   \
+    do {                                       \
+        static int _count = 0;                 \
+        if (_count++ < (n)) LOGR(__VA_ARGS__); \
+    } while (0)
+
 namespace {
 
 // viewport +0x18 client; client +0x2C engine, +0x30 viewports (first is the player's); engine vtable +0x94
@@ -73,7 +80,7 @@ void PatchUserIni() {
     if (!changed) return;
     std::ofstream out(file, std::ios::binary | std::ios::trunc);
     out.write(bytes.data(), std::streamsize(bytes.size()));
-    LOGI("mouse: acceleration and smoothing off in %s", file.string().c_str());
+    LOGR("mouse: acceleration and smoothing off in %s", file.string().c_str());
 }
 
 // Raw mouse look, direct. The game's scripts shape whatever reaches them as input (made for a thumbstick: quick
@@ -92,12 +99,21 @@ constexpr uint32_t kSearchBytes = 0x1000;                      // of each object
 constexpr int kAdoptChanges = 8;   // the pair matched through this many different yaws
 constexpr int kVerify = 6;         // writes the camera has to follow (or not) to keep (or drop) a find
 constexpr float kUnitsPerCount = 4.0f;  // Rotation units a count at sensitivity 1: 0.022 degrees, as common PC games
+constexpr int32_t kScriptedTurn = 2000;  // Rotation units in one tick (11 degrees): the game turning the view itself
+constexpr int32_t kRecoilYaw = 300;      // a shot's sideways kick at most (AACTuning.ini RecoilYaw 150 to 275)
+constexpr int32_t kMaxLead = 1500;       // the most pull allowed for ahead in one tick (8 degrees)
 
 struct Camera {
     int16_t pitch = 0, yaw = 0;
     float fov = 0;
     bool fresh = false;  // set since the last UpdateInput
 } g_cam;
+
+// Aim Assist off: the player's own aim, kept apart from what the game's lock does to the view
+int g_mode = 0;                                  // AimAssist's answer this frame
+uint32_t g_aim_at = 0, g_aim_pitch = 0, g_aim_yaw = 0;  // the aim (at the Rotation it belongs to)
+uint32_t g_pre_at = 0, g_pre_pitch = 0, g_pre_yaw = 0;  // the view the tick started from
+int32_t g_lead_pitch = 0, g_lead_yaw = 0;        // firing: the pull allowed for ahead
 
 struct Find {
     uint32_t field, offset;
@@ -160,7 +176,52 @@ void Drop() {
 
 }  // namespace
 
+int AimAssist(uint8_t* base, uint32_t viewport);  // aim_assist.cpp: 0, 1 undo the tick's turn, 2 firing
+float ShownFov();                                   // aim_assist.cpp
+
 // the world camera's rotation as this frame builds it (widescreen.cpp's UpdateMatrices hook, the frame's first)
+// Aim Assist off, after the tick, as the frame's world camera is set up (widescreen.cpp): the game's lock turned the
+// view toward its target in the tick. It is put back on the player's aim, and the camera with it, so the pull is never
+// seen. Kept in the aim: a jump (respawn, cutscene), the pitch only brought back toward level (prone and the like),
+// and while firing the kick up and its small sideways jolt beyond the pull that was led for (the settling back down
+// is the player's to do). Not firing, the tick started from the true aim, so the game picks its target fairly and
+// nothing flips back and forth between two targets.
+void AimAfterTick(uint8_t* base, uint32_t node) {
+    uint32_t view = g_pre_at;
+    if (!g_mode || !view || view != g_aim_at || !Readable(view, 8)) return;
+    int32_t pre_pitch = int16_t(g_pre_pitch), post_pitch = int16_t(X86_MEM32(view));
+    int32_t d_pitch = post_pitch - pre_pitch, d_yaw = int32_t(X86_MEM32(view + 4) - g_pre_yaw);
+    bool jump = std::abs(d_pitch) > kScriptedTurn || std::abs(d_yaw) > kScriptedTurn;
+    if (jump) {
+        g_aim_pitch = X86_MEM32(view);
+        g_aim_yaw = X86_MEM32(view + 4);
+        g_lead_pitch = g_lead_yaw = 0;
+        return;
+    }
+    int32_t keep_pitch = 0, keep_yaw = 0;
+    bool limit = d_yaw == 0 && d_pitch != 0 && std::abs(post_pitch) < std::abs(pre_pitch);
+    if (g_mode == 2) {
+        // what came beyond the pull led for is the weapon's: kept. The lead is not learned from these ticks (the
+        // recoil in them fed back into it, and the aim wandered); it stays what the last ticks without firing showed
+        int32_t beyond_pitch = d_pitch - g_lead_pitch, beyond_yaw = d_yaw - g_lead_yaw;
+        keep_pitch = beyond_pitch > 0 || limit ? beyond_pitch : 0;
+        keep_yaw = std::abs(beyond_yaw) <= kRecoilYaw ? beyond_yaw : 0;
+    } else {
+        // not firing: everything but the pitch limits is the lock's; this tick's pull is the lead for a shot next
+        keep_pitch = limit ? d_pitch : 0;
+        g_lead_pitch = std::clamp(d_pitch - keep_pitch, -kMaxLead, kMaxLead);
+        g_lead_yaw = std::clamp(d_yaw, -kMaxLead, kMaxLead);
+    }
+    g_aim_pitch += uint32_t(keep_pitch);
+    g_aim_yaw += uint32_t(keep_yaw);
+    // the correction, to the controller and to the camera built from it
+    uint32_t fix_pitch = g_aim_pitch - X86_MEM32(view), fix_yaw = g_aim_yaw - X86_MEM32(view + 4);
+    X86_MEM32(view) = g_aim_pitch;
+    X86_MEM32(view + 4) = g_aim_yaw;
+    X86_MEM32(node + kNodeRotation) = X86_MEM32(node + kNodeRotation) + fix_pitch;
+    X86_MEM32(node + kNodeRotation + 4) = X86_MEM32(node + kNodeRotation + 4) + fix_yaw;
+}
+
 void NoteWorldCamera(uint8_t* base, uint32_t node) {
     g_cam.pitch = int16_t(X86_MEM32(node + kNodeRotation));
     g_cam.yaw = int16_t(X86_MEM32(node + kNodeRotation + 4));
@@ -179,6 +240,35 @@ X86_FUNC(sub_002F4D00) {
     uint32_t list = client ? X86_MEM32(client + kViewports) : 0;
     uint32_t player = list ? X86_MEM32(list) : 0;
     if (!engine || !player) return;
+    // Aim Assist off (aim_assist.cpp): 0, 1 the lock's pull taken out, 2 the same while firing
+    int undo = AimAssist(base, player);
+    uint32_t view_obj = g_found ? X86_MEM32(player + g_use.field) : 0;
+    uint32_t view = view_obj && Readable(view_obj + g_use.offset, 8) ? view_obj + g_use.offset : 0;
+    g_mode = view ? undo : 0;
+    if (!g_mode || g_aim_at != view) g_lead_pitch = g_lead_yaw = 0;
+    // before the tick: the view at the player's aim, firing turned away from the target by the pull the last tick
+    // made, so the shot leaves along the sights
+    if (g_mode && g_aim_at == view) {
+        int32_t lp = g_mode == 2 ? g_lead_pitch : 0, ly = g_mode == 2 ? g_lead_yaw : 0;
+        X86_MEM32(view) = g_aim_pitch - uint32_t(lp);
+        X86_MEM32(view + 4) = g_aim_yaw - uint32_t(ly);
+    }
+    // the view as this hook leaves it (the mouse's turn in it) is what the tick starts from; the aim is that, with
+    // the lead taken back out
+    struct Leave {
+        uint8_t* base;
+        uint32_t view;
+        ~Leave() {
+            g_pre_at = view;
+            if (!view) return;
+            g_pre_pitch = X86_MEM32(view);
+            g_pre_yaw = X86_MEM32(view + 4);
+            int32_t lp = g_mode == 2 ? g_lead_pitch : 0, ly = g_mode == 2 ? g_lead_yaw : 0;
+            g_aim_pitch = g_pre_pitch + uint32_t(lp);
+            g_aim_yaw = g_pre_yaw + uint32_t(ly);
+            g_aim_at = view;
+        }
+    } leave{base, view};
 
     // the find in use: did the camera follow the last write
     bool fresh = g_cam.fresh;
@@ -193,7 +283,7 @@ X86_FUNC(sub_002F4D00) {
         Search(base, player);
         static uint32_t frames = 0;
         if (!g_found && ++frames % 900 == 0)
-            LOG_FIRST(6, "mouse: still searching: camera pitch %d yaw %d fov %.1f, %zu candidate pairs", g_cam.pitch,
+            REPORT_FIRST(6, "mouse: still searching: camera pitch %d yaw %d fov %.1f, %zu candidate pairs", g_cam.pitch,
                       g_cam.yaw, g_cam.fov, g_finds.size());
     }
 
@@ -203,15 +293,15 @@ X86_FUNC(sub_002F4D00) {
     dx *= s.invert_mouse_x ? -s.mouse_x : s.mouse_x;
     dy *= (s.invert_mouse_y ? s.mouse_y : -s.mouse_y) * app::kGame.mouse_y_ratio;  // screen down, look down
 
-    uint32_t obj = g_found ? X86_MEM32(player + g_use.field) : 0;
-    if (obj && Readable(obj + g_use.offset, 8)) {
+    if (view) {
         // aiming zooms: the turn scales with the camera's angle, as Unreal's own mouse look does
-        float zoom = g_cam.fov > 1 && app::kGame.fov > 0 ? g_cam.fov / app::kGame.fov : 1.0f;
+        float fov = ShownFov() > 1 ? ShownFov() : g_cam.fov;  // aim_assist.cpp: the zoom as drawn
+        float zoom = fov > 1 && app::kGame.fov > 0 ? fov / app::kGame.fov : 1.0f;
         float ux = dx * kUnitsPerCount * zoom + g_rest_x, uy = dy * kUnitsPerCount * zoom + g_rest_y;
         int32_t ix = int32_t(ux), iy = int32_t(uy);
         g_rest_x = ux - float(ix);
         g_rest_y = uy - float(iy);
-        uint32_t at = obj + g_use.offset;
+        uint32_t at = view;
         uint32_t pitch = X86_MEM32(at), yaw = X86_MEM32(at + 4);
         // pitch kept within a little of straight up and down; the game's own limits (prone and the like) apply on
         int32_t p = int16_t(pitch), q = std::clamp(p + iy, -16000, 16000);
