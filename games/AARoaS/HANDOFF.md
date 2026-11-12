@@ -219,6 +219,27 @@ automatically through `../../cmake/XbeRecomp.cmake`; no `sdk\` copy is needed.
   beautifully"): while the key bound to Y (Switch Weapon) is held, raw mouse movement points the left stick (held to
   120 counts so turning back swings straight over, 25 dead) instead of looking; the movement keys are left out.
 - **Default keys** are the user's own layout (2026-11-12, game_info.cpp key_actions).
+- **Menus have their own keys** (core/keyboard.cpp MergeKeyboard, while input::SetGameMenu): A Enter / Space / a click
+  on an item, B Esc / Backspace / right click, X X, Y Y, the shoulders (tabs, pages) Q E, D-pad arrows and wheel;
+  play's bindings are left out there. Keys held as menu and play switch count only once let go (Esc that opened the
+  pause menu closed it at once). Enter and a click also press Start on the title page (only before any menu item was
+  ever told selected: the mission select sends no selection, and took A and Start as two presses). Esc in the pause
+  menu: B, then Start 250 ms later when fewer than 8 new elements were drawn (B did nothing: the first page). Every
+  pause page is made afresh with new elements and the HUD's lists linger beneath, so recognising the first page by
+  element or by box failed. User confirmed all of it.
+- **Button icons follow the device** (input::UsingPad: the last of a key, a mouse move or click, or a controller
+  button, trigger or stick well off centre): replacements under `textures\replacement\@keyboard\` form a group
+  (texturedumper SetPackGroup, any `@name` folder), on while the keyboard and mouse are used. `tools\make_key_icons.ps1`
+  draws them at 4x: the menus' atlas 128x128_cee43c3773341320 (A X B / Start Y / L Black / White R) as Enter X Esc /
+  Esc Y / Q Tab / Z E, the HUD's A 32x32_e4dd91ad26fcd422 as F. User confirmed the switch.
+- **Rumble only while the controller is in use**; switching to keyboard or mouse stops its motors (user confirmed).
+- **Text and file patches** (GameInfo::patch_file, kernel/files.cpp): a disc file's stand-in in `overrides\` beside the
+  exe is read instead, written from the game's patch the first time the file is opened; the cache drive's (Z:) copy
+  is patched in place (the game copies `UI\XBox\*.pkg` there and reads that). text.cpp: strINTX.pkg's strings are
+  type 4, length, UTF-16, so a string keeps its length (shorter ones padded): "PLEASE PRESS ENTER TO BEGIN", "Use Q
+  and E to view" (the Personnel Jacket's pages). User confirmed the title text.
+- **Known, for later:** the mission select (the roles and missions grids) sends no selection message, so the mouse
+  does not hover there (the arrows work).
 - **Game menus with the mouse, phase 2** (`src/game/menus.cpp`; user: "good enough to move forward"): hover selects
   the item under the cursor, a click picks it, clicks off the items do nothing. Each element's box comes from the
   screen space draws made while it is on top of a stack kept in a CElement::Draw hook (d3d::OnScreenDraw gives each

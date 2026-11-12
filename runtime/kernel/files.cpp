@@ -7,8 +7,10 @@
 #include <filesystem>
 #include <fstream>
 #include <map>
+#include <set>
 #include <thread>
 
+#include "app/app.h"
 #include "kernel/disc.h"
 #include "kernel/kernel.h"
 #include "kernel/exports.h"
@@ -271,8 +273,79 @@ Target Resolve(const std::string& xbox_path, uint32_t root_handle) {
     // no Xbox name holds ':', and fs::path would take "D:" as a host drive
     for (auto& part : parts)
         if (part.find(':') != std::string::npos) return {};
-    if (best->first == kCdRom)
+    // GameInfo::patch_file on the cache drive (Z:) too: a game that copies its disc files there (as this SDK's AA does
+    // its UI) reads that copy. Patched in place the first time each session it is opened; a second pass finds nothing
+    // left to change
+    if (best->first == "\\DEVICE\\HARDDISK0\\PARTITION5" && app::kGame.patch_file && !parts.empty()) {
+        static std::set<std::string> asked_cache;
+        std::string key;
+        for (const auto& part : parts) key += Upper(part) + "\\";
+        if (asked_cache.insert(key).second) {
+            fs::path host = MatchCase(best->second, parts);
+            std::error_code ec;
+            if (fs::is_regular_file(host, ec)) {
+                std::ifstream in(host, std::ios::binary);
+                std::vector<uint8_t> data(std::istreambuf_iterator<char>(in), {});
+                in.close();
+                std::string path;
+                for (size_t i = 0; i < parts.size(); i++) path += (i ? "\\" : "") + parts[i];
+                if (app::kGame.patch_file(path.c_str(), data)) {
+                    std::ofstream f(host, std::ios::binary | std::ios::trunc);
+                    f.write(reinterpret_cast<const char*>(data.data()), std::streamsize(data.size()));
+                    LOGR("files: Z:\\%s patched", path.c_str());
+                }
+            }
+        }
+    }
+    if (best->first == kCdRom) {
+        // a disc file with a stand-in beside the exe (overrides\ by its path on the disc, any case) is read instead,
+        // from the extracted files or the disc image alike: a port's changes to the game's own data
+        static const fs::path overrides = app::ExeDir() / "overrides";
+        std::error_code ec;
+        // GameInfo::patch_file: the first time a disc file is opened, the game may change it; the result is written
+        // as its stand-in (again only when it differs, so a stand-in made by hand without a patch stays)
+        if (app::kGame.patch_file && !parts.empty()) {
+            static std::set<std::string> asked;
+            std::string key;
+            for (const auto& part : parts) key += Upper(part) + "\\";
+            if (asked.insert(key).second) {
+                std::vector<uint8_t> data;
+                bool read = false;
+                if (const Disc* disc = MountedDisc()) {
+                    if (const Disc::Entry* e = disc->Find(parts); e && !e->dir) {
+                        data.resize(e->size);
+                        read = disc->Read(*e, 0, data.data(), e->size) == e->size;
+                    }
+                } else {
+                    std::ifstream in(MatchCase(best->second, parts), std::ios::binary);
+                    if (in) {
+                        data.assign(std::istreambuf_iterator<char>(in), {});
+                        read = true;
+                    }
+                }
+                std::string path;
+                for (size_t i = 0; i < parts.size(); i++) path += (i ? "\\" : "") + parts[i];
+                if (read && app::kGame.patch_file(path.c_str(), data)) {
+                    fs::path out = overrides;
+                    for (const auto& part : parts) out /= part;
+                    std::ifstream old(out, std::ios::binary);
+                    std::vector<uint8_t> had(std::istreambuf_iterator<char>(old), {});
+                    old.close();
+                    if (had != data) {
+                        fs::create_directories(out.parent_path(), ec);
+                        std::ofstream f(out, std::ios::binary | std::ios::trunc);
+                        f.write(reinterpret_cast<const char*>(data.data()), std::streamsize(data.size()));
+                        LOGR("files: %s patched into %s", path.c_str(), out.string().c_str());
+                    }
+                }
+            }
+        }
+        if (!parts.empty() && fs::is_directory(overrides, ec)) {
+            fs::path o = MatchCase(overrides, parts);
+            if (fs::is_regular_file(o, ec)) return {o.string()};
+        }
         if (const Disc* disc = MountedDisc()) return {{}, true, disc->Find(parts)};
+    }
     return {MatchCase(best->second, parts).string()};
 }
 

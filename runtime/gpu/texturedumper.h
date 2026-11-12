@@ -30,6 +30,9 @@ enum class Lookup { None, Loading, Ready };
 // latches the texture settings, the render thread's, and lists the pack again once its files changed.
 // true then: every pack image loads anew, GPU copies made before are stale
 bool Update();
+// a group of the pack (its images under a folder named @name) on or off, from any thread: used while on, and the
+// textures with an image in it made again at the next Update (as when a file of the pack changes)
+void SetPackGroup(const char* name, bool on);
 // changes with any texture setting: every texture's key and pack image are looked up again
 uint32_t Generation();
 // replacement on and the pack holds images

@@ -13,6 +13,7 @@
 #include "app/app.h"
 #include "core/log.h"
 #include "gpu/screen2d.h"
+#include "gpu/texturedumper.h"
 #include "kernel/memory.h"
 #include "core/input.h"
 #include "xdk/hle.h"
@@ -181,6 +182,7 @@ void Drop() {
 int AimAssist(uint8_t* base, uint32_t viewport);  // aim_assist.cpp: 0, 1 undo the tick's turn, 2 firing
 float ShownFov();                                   // aim_assist.cpp
 bool GamePaused(uint8_t* base, uint32_t viewport);  // aim_assist.cpp
+void MenusPaused(bool paused);                      // menus.cpp
 
 // the world camera's rotation as this frame builds it (widescreen.cpp's UpdateMatrices hook, the frame's first)
 // Aim Assist off, after the tick, as the frame's world camera is set up (widescreen.cpp): the game's lock turned the
@@ -245,7 +247,12 @@ X86_FUNC(sub_002F4D00) {
     if (!engine || !player) return;
     // a game menu has the mouse: the front end (no 3D drawn) or the pause menu (the game paused). The cursor is
     // free there, the view does not turn, and the mouse buttons and wheel work the menu (core/keyboard.cpp)
-    input::SetGameMenu(!gpu::screen2d::Frame3D() || GamePaused(base, player));
+    bool paused = GamePaused(base, player);
+    input::SetGameMenu(!gpu::screen2d::Frame3D() || paused);
+    MenusPaused(paused);  // menus.cpp: Escape closes the pause menu from its first page
+    // the button icons follow the device used last: the keyboard's and mouse's (textures\replacement\@keyboard\,
+    // tools\make_key_icons.ps1) or the controller's own
+    gpu::texturedumper::SetPackGroup("keyboard", !input::UsingPad());
     // Aim Assist off (aim_assist.cpp): 0, 1 the lock's pull taken out, 2 the same while firing
     int undo = AimAssist(base, player);
     uint32_t view_obj = g_found ? X86_MEM32(player + g_use.field) : 0;

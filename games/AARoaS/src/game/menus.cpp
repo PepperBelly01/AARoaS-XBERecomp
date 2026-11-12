@@ -42,6 +42,8 @@ constexpr uint32_t kSelectMessage = 0x17, kSelected = 0x12C, kDeselected = 0x12D
 constexpr uint32_t kStepHoldMs = 34, kStepGapMs = 17;
 constexpr uint32_t kStepTimeoutMs = 100;  // a step not answered by then (the press not seen): pressed again
 constexpr float kPageWidth = 640, kPageHeight = 480;
+constexpr uint32_t kEscapeSettleMs = 250;  // Escape (B) in the pause menu: a page change shows by then
+constexpr int kNewPageElements = 8;       // that many elements not drawn before: another page
 
 struct Drawn {
     uint32_t element;
@@ -58,7 +60,11 @@ uint32_t g_frame_no = ~0u;
 
 uint32_t g_selected = 0;    // this frame: the selected item of the list worked
 // each item's state as the messages left it: a page left and come back to keeps its selection without a new message
-std::unordered_map<uint32_t, bool> g_item_selected;
+struct ItemState {
+    bool selected;
+    uint32_t frame;  // the Swap it was told in
+};
+std::unordered_map<uint32_t, ItemState> g_item_selected;
 ULONGLONG g_woken_at = 0;   // a list with no known selection was woken (a Down pressed) then
 uint32_t g_target = 0;      // the item the cursor went to, stepped toward
 uint32_t g_unreachable = 0; // an item a step did not bring the selection nearer to (disabled: skipped over), left
@@ -66,6 +72,8 @@ uint32_t g_unreachable = 0; // an item a step did not bring the selection nearer
 int g_step_gap = -1;        // the distance to the target when the last step was pressed, -1 for none
 ULONGLONG g_step_at = 0;    // a step pressed then, not yet answered
 int g_last_x = -1, g_last_y = -1;
+bool g_paused = false;       // the game paused: the pause menu
+uint32_t g_pause_frame = 0;  // the Swap the pause began in
 
 bool Readable(uint32_t a, uint32_t n) { return a >= 0x10000 && mem::IsCommitted(a) && mem::IsCommitted(a + n - 1); }
 
@@ -109,7 +117,29 @@ void FollowCursor() {
     if (input::MouseLooks()) {  // play: the mouse looks
         g_target = 0;
         input::SetMenuClick(true);
+        input::SetMenuStart(false, false);
+        input::TakeMenuEscape();
         return;
+    }
+    // Escape in the pause menu presses B; when B left the page as it was (the pause menu's first page, where B does
+    // nothing) Start is pressed after it, which closes the pause menu. A page change makes the page's elements anew, so
+    // "as it was" is: few elements drawn now that were not as Escape was pressed (a blink or an animation shows the
+    // same ones again). Guessing the first page failed: each page is made afresh, and the HUD's lists linger beneath
+    {
+        static ULONGLONG escaped_at = 0;
+        static std::unordered_map<uint32_t, bool> before;
+        ULONGLONG now = GetTickCount64();
+        if (input::TakeMenuEscape() && g_paused) {
+            escaped_at = now;
+            before.clear();
+            for (const Drawn& d : g_last) before[d.element] = true;
+        }
+        if (escaped_at && now - escaped_at >= kEscapeSettleMs) {
+            int fresh = 0;
+            for (const Drawn& d : g_last) fresh += before.count(d.element) ? 0 : 1;
+            if (g_paused && fresh < kNewPageElements) input::PressMenuButtons(1u << 4, kStepHoldMs * 2);
+            escaped_at = 0;
+        }
     }
     float px, py;
     int wx, wy;
@@ -117,24 +147,34 @@ void FollowCursor() {
     bool moved = on_page && (wx != g_last_x || wy != g_last_y);
     g_last_x = wx;
     g_last_y = wy;
-    // the selected items drawn (a list each); the list worked is the one with an item under the cursor, else the first
-    int selected = -1;
+    // the selected items drawn (a list each); the list worked is the one with an item under the cursor, else the one
+    // in front
+    int selected = -1, topmost = -1;
     const Drawn* hovered = nullptr;
     for (size_t i = 0; i < g_last.size(); i++) {
         auto state = g_item_selected.find(g_last[i].element);
-        if (state == g_item_selected.end() || !state->second || g_last[i].parent < 0) continue;
+        if (state == g_item_selected.end() || !state->second.selected || g_last[i].parent < 0) continue;
+        // paused: only the lists told since the pause began are the pause menu's (the HUD's, left from play, are not)
+        if (g_paused && state->second.frame < g_pause_frame) continue;
         const Drawn* over = nullptr;
         for (const Drawn& d : g_last)
             if (on_page && d.parent == g_last[i].parent && Inside(d, px, py)) over = &d;
-        if (selected < 0 || (over && !hovered)) {
+        // the page in front is drawn last: a later list wins, unless only an earlier one is under the cursor
+        topmost = int(i);
+        if (over) {
             selected = int(i);
             hovered = over;
+        } else if (!hovered) {
+            selected = int(i);
         }
     }
     if (selected < 0) {
         g_target = 0;
         g_selected = 0;
         input::SetMenuClick(true);  // no list known: a click presses A ("press A to go on")
+        // the title page (before the menus have said any item is selected): Enter and a click press Start too. Not
+        // later: a page whose items send no selection (the mission select) took A and Start as two presses
+        input::SetMenuStart(g_item_selected.empty(), false);
         // a list that has not said which item is selected (a page opened, its first item selected without a
         // message): the mouse moving wakes it with a Down, and its answer says
         ULONGLONG now = GetTickCount64();
@@ -146,6 +186,7 @@ void FollowCursor() {
     }
     g_selected = g_last[size_t(selected)].element;
     int list = g_last[size_t(selected)].parent;
+    input::SetMenuStart(false, false);
     if (!on_page) {
         input::SetMenuClick(false);
         return;
@@ -246,9 +287,17 @@ X86_FUNC(sub_0036B2A0) {
         last_frame = d3d::Presents();
         last_code = code;
         if (first && (code == kSelected || code == kDeselected)) {
-            g_item_selected[element] = code == kSelected;
+            g_item_selected[element] = {code == kSelected, d3d::Presents()};
             if (code == kSelected) g_step_at = 0;  // the step answered
         }
     }
     __imp__sub_0036B2A0(ctx, base);
+}
+
+// mouse.cpp, each frame: the game paused or not; a new pause learns its first page afresh
+void MenusPaused(bool paused) {
+    if (paused && !g_paused) {
+        g_pause_frame = d3d::Presents();
+    }
+    g_paused = paused;
 }

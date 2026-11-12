@@ -6,6 +6,7 @@
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
+#include <atomic>
 #include <windows.h>
 #include <wincodec.h>
 #include <wrl/client.h>
@@ -65,6 +66,17 @@ struct Pack {
     fs::path pack_dir;
     fs::path dump_dir;
     std::unordered_map<uint64_t, fs::path> files;  // by the key in their names; written by Update alone
+    // every image found, with its group: an image under a folder named @name is in group name, used only while the
+    // group is on (SetPackGroup); files holds those in use
+    struct Found {
+        uint64_t key;
+        fs::path path;
+        std::string group;
+    };
+    std::vector<Found> all;
+    std::mutex groups_lock;
+    std::unordered_map<std::string, bool> groups;  // on or off, as last set
+    std::atomic<bool> groups_changed{false};
     HANDLE watch = INVALID_HANDLE_VALUE;           // changes under pack_dir
     uint32_t watch_tries = 0;
     std::optional<Clock::time_point> changed;      // the last change seen, not listed yet
@@ -173,17 +185,41 @@ std::string Utf8(const fs::path& p) {
     return std::string(s.begin(), s.end());
 }
 
-void ListPack(const fs::path& dir) {
+// the images in use: those in no group and those of the groups on
+void ChooseFiles() {
     g.files.clear();
+    std::lock_guard l(g.groups_lock);
+    for (const auto& f : g.all) {
+        if (!f.group.empty()) {
+            auto on = g.groups.find(f.group);
+            if (on == g.groups.end() || !on->second) continue;
+        }
+        g.files.emplace(f.key, f.path);
+    }
+}
+
+void ListPack(const fs::path& dir) {
+    g.all.clear();
     std::error_code ec;
     fs::recursive_directory_iterator it(dir, ec);
     for (; !ec && it != fs::recursive_directory_iterator(); it.increment(ec)) {
         const fs::path& p = it->path();
         bool image = _wcsicmp(p.extension().c_str(), L".dds") == 0 || _wcsicmp(p.extension().c_str(), L".png") == 0;
         uint64_t key = image ? KeyInName(p.stem().wstring()) : 0;
-        if (key) g.files.emplace(key, p);
+        if (!key) continue;
+        // the nearest folder named @something below dir is its group
+        std::string group;
+        for (fs::path up = p.parent_path(); up != dir && up.has_relative_path(); up = up.parent_path()) {
+            std::string name = Utf8(up.filename());
+            if (!name.empty() && name[0] == '@') {
+                group = name.substr(1);
+                break;
+            }
+        }
+        g.all.push_back({key, p, group});
     }
-    LOGR("texture pack: %zu images in %s", g.files.size(), Utf8(dir).c_str());
+    ChooseFiles();
+    LOGR("texture pack: %zu images in %s, %zu in use", g.all.size(), Utf8(dir).c_str(), g.files.size());
 }
 
 // DDS files
@@ -542,9 +578,26 @@ bool UpdatePackFiles() {
 
 }  // namespace
 
+void SetPackGroup(const char* name, bool on) {
+    std::lock_guard l(g.groups_lock);
+    auto it = g.groups.find(name);
+    if (it != g.groups.end() && it->second == on) return;
+    g.groups[name] = on;
+    g.groups_changed = true;
+}
+
 bool Update() {
     bool changed = LatchSettings();
     bool reloaded = g.set.replacing && UpdatePackFiles();
+    // a group switched: the images in use chosen again, and the textures that had one (or now have one) made again
+    if (g.set.replacing && g.groups_changed.exchange(false)) {
+        ChooseFiles();
+        std::lock_guard l(g.lock);
+        g.revision++;
+        g.asked.clear();
+        g.loaded.clear();
+        reloaded = true;
+    }
     if (changed || reloaded) g.generation++;
     return reloaded;
 }

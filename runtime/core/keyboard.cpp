@@ -39,6 +39,8 @@ std::atomic<bool> g_game_menu{false};
 std::atomic<uint16_t> g_menu_buttons{0};              // held for the game side's cursor ...
 std::atomic<int64_t> g_menu_buttons_until{0};         // ... until then (steady clock, ms)
 std::atomic<bool> g_menu_click{true};                 // a left click presses A
+std::atomic<bool> g_enter_start{false}, g_escape_start{false};  // SetMenuStart
+std::atomic<int> g_menu_escapes{0};  // Escape pressed in a game menu, not yet taken (TakeMenuEscape)
 HWND g_hwnd = nullptr;
 // rebinding: 1 waiting for a key, 2 a key taken
 std::atomic<int> g_capture{0};
@@ -175,6 +177,8 @@ bool OnWindowMessage(void* hwnd, uint32_t msg, uintptr_t wp, intptr_t lp) {
         case WM_KEYDOWN:
         case WM_SYSKEYDOWN: {
             uint16_t key = KeyOf(wp, lp);
+            if (wp != VK_F10 && wp != VK_F9) NoteInput(false);  // the keyboard used: its icons
+            if (wp == VK_ESCAPE && !(lp & (1 << 30)) && g_game_menu.load() && !app::MenuOpen()) g_menu_escapes++;
             if (!(lp & (1 << 30)) && wp != VK_F10 && Captures(key)) return true;
             if (app::MenuOpen() || !HasBinds()) return false;
             Set(key, true);
@@ -197,6 +201,7 @@ bool OnWindowMessage(void* hwnd, uint32_t msg, uintptr_t wp, intptr_t lp) {
                            : msg == WM_RBUTTONDOWN ? VK_RBUTTON
                            : msg == WM_MBUTTONDOWN ? VK_MBUTTON
                            : GET_XBUTTON_WPARAM(wp) == XBUTTON1 ? VK_XBUTTON1 : VK_XBUTTON2;
+            NoteInput(false);
             if (Captures(key)) return true;
             Set(key, !app::MenuOpen());
             return false;
@@ -222,6 +227,7 @@ bool OnWindowMessage(void* hwnd, uint32_t msg, uintptr_t wp, intptr_t lp) {
                 return false;
             if (ri.header.dwType == RIM_TYPEMOUSE && !(ri.data.mouse.usFlags & MOUSE_MOVE_ABSOLUTE)) {
                 float mx = float(ri.data.mouse.lLastX), my = float(ri.data.mouse.lLastY);
+                if (std::abs(mx) + std::abs(my) > 3) NoteInput(false);  // the mouse moved, not a twitch
                 if (Looks()) {
                     std::lock_guard lock(g_lock);
                     g_dx += mx;
@@ -287,6 +293,11 @@ void PressMenuButtons(uint16_t buttons, uint32_t ms) {
 
 void SetMenuClick(bool presses) { g_menu_click = presses; }
 
+void SetMenuStart(bool enter, bool escape) {
+    g_enter_start = enter;
+    g_escape_start = escape;
+}
+
 bool CursorInWindow(int& x, int& y, int& width, int& height) {
     POINT p;
     RECT r;
@@ -299,6 +310,15 @@ bool CursorInWindow(int& x, int& y, int& width, int& height) {
 }
 
 bool MouseLooks() { return Looks(); }
+
+namespace {
+std::atomic<bool> g_using_pad{false};
+}
+bool UsingPad() { return g_using_pad.load(); }
+bool TakeMenuEscape() { return g_menu_escapes.exchange(0) > 0; }
+void NoteInput(bool pad) {
+    if (g_using_pad.exchange(pad) && !pad) StopRumble();  // to the keyboard: the controller's motors stopped
+}
 
 // the keyboard's and the mouse's presses over port 0's controller (input.cpp's Poll)
 void MergeKeyboard(int port, Pad& p) {
@@ -314,12 +334,36 @@ void MergeKeyboard(int port, Pad& p) {
     // a game menu: the mouse works it as a PC menu, left click selects (A), right click goes back (B), the wheel
     // steps up and down (the D-pad); its game bindings (fire, aim, weapon) are left out
     bool menu = g_game_menu.load();
+    // The layouts switch (a menu opened or closed): keys held then count only once let go, so Escape that opened the
+    // pause menu (Start in play) does not close it again at once (Back in menus)
+    static bool was_menu = false;
+    static bool stale[kKeyCount] = {};
+    if (menu != was_menu) {
+        std::copy(std::begin(g_held), std::end(g_held), std::begin(stale));
+        was_menu = menu;
+    }
+    for (size_t k = 0; k < kKeyCount; k++)
+        if (!g_held[k]) stale[k] = false;
+    auto held = [&](uint16_t k) { return g_held[k] && !stale[k]; };
+    // Game menus have their own keys, the same for everyone, so the icons can name them (GameInfo::key_actions are
+    // play's): A Enter, Space or a click on an item; B Escape, Backspace or right click; X and Y their letters; the
+    // D-pad the arrows and the wheel; the shoulders (pages, tabs) Q and E
     if (menu) {
-        if (g_held[VK_LBUTTON] && g_menu_click.load()) p.analog[0] = 0xFF;
+        bool accept = (held(VK_LBUTTON) && g_menu_click.load()) || held(VK_RETURN) || held(VK_SPACE);
+
+        if (accept) p.analog[0] = 0xFF;
+        if (accept && g_enter_start.load()) p.buttons |= 1u << 4;  // Start, on a page that takes only it
+        if (held(VK_RBUTTON) || held(VK_ESCAPE) || held(VK_BACK)) p.analog[1] = 0xFF;
+        if (held('X')) p.analog[2] = 0xFF;
+        if (held('Y')) p.analog[3] = 0xFF;
+        if (held('Q')) p.analog[6] = 0xFF;
+        if (held('E')) p.analog[7] = 0xFF;
+        if (held(VK_UP) || wheel[0]) p.buttons |= 1u << 0;
+        if (held(VK_DOWN) || wheel[1]) p.buttons |= 1u << 1;
+        if (held(VK_LEFT)) p.buttons |= 1u << 2;
+        if (held(VK_RIGHT)) p.buttons |= 1u << 3;
         if (NowMs() < g_menu_buttons_until.load()) p.buttons |= g_menu_buttons.load();
-        if (g_held[VK_RBUTTON]) p.analog[1] = 0xFF;
-        if (wheel[0]) p.buttons |= 1u << 0;
-        if (wheel[1]) p.buttons |= 1u << 1;
+        return;
     }
     // a radial menu open: the left stick points the mouse's way (the movement keys left out); closed, forgotten
     bool radial = !menu && RadialOpen();
@@ -332,7 +376,7 @@ void MergeKeyboard(int port, Pad& p) {
         bool down = b.key == kWheelUp     ? wheel[0]
                     : b.key == kWheelDown ? wheel[1]
                     : b.key == kWheel     ? wheel[0] || wheel[1]
-                                          : b.key && b.key < kKeyCount && g_held[b.key];
+                                          : b.key && b.key < kKeyCount && held(b.key);
         if (!down) continue;
         switch (b.target) {
             case PadTarget::Button: p.buttons |= uint16_t(1u << b.index); break;

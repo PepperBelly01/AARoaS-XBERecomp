@@ -5,6 +5,7 @@
 static const bool g_aspect_default = (app::Get().aspect = app::kAspect4x3, true);
 
 void PatchUserIni();  // mouse.cpp: the game's mouse acceleration and smoothing off
+bool PatchGameText(const char* path, std::vector<uint8_t>& data);  // text.cpp
 
 // America's Army: Rise of a Soldier (Xbox, USA). XDK 5849, Unreal Engine 2 based.
 const app::GameInfo app::kGame = {
@@ -51,6 +52,7 @@ const app::GameInfo app::kGame = {
     .mouse_y_ratio = 1.0f,  // with acceleration off (mouse.cpp) the game turns and tilts alike
     .aim_assist = true,     // aim_assist.cpp
     .radial_menu_analog = 3,  // the weapon wheel: Y held (Switch Weapon), picked with the left stick, the mouse here
+    .patch_file = PatchGameText,  // text.cpp: the menus' text names keys, not buttons
     .load = nullptr,
     .save = nullptr,
     .init = PatchUserIni,  // mouse.cpp

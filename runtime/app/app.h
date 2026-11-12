@@ -142,6 +142,9 @@ struct GameInfo {
     // a radial menu (the weapon wheel) opened by holding the key that presses this analog button (0 A ... 3 Y), -1
     // none: while it is held the mouse points the left stick instead of looking around
     int radial_menu_analog = -1;
+    // a file of the game's disc (its path there, as asked for) the game changes: true when it did. Asked once a file,
+    // the first time it is opened; the result is kept in overrides\ beside the exe and read instead (kernel/files.cpp)
+    bool (*patch_file)(const char* disc_path, std::vector<uint8_t>& data) = nullptr;
     // the settings file's toml::table, for what options cannot hold
     void (*load)(const void* table);
     void (*save)(void* table);

@@ -109,6 +109,11 @@ Pad Poll(int port) {
             p.ly = int16_t(-1 - axis(SDL_GAMEPAD_AXIS_LEFTY));
             p.rx = int16_t(axis(SDL_GAMEPAD_AXIS_RIGHTX));
             p.ry = int16_t(-1 - axis(SDL_GAMEPAD_AXIS_RIGHTY));
+            // the controller used (a button, a trigger, a stick well off centre): its icons
+            bool used = p.buttons != 0;
+            for (uint8_t a : p.analog) used = used || a > 30;
+            for (int16_t s : {p.lx, p.ly, p.rx, p.ry}) used = used || s > 12000 || s < -12000;
+            if (used) NoteInput(true);
             // the overlay's Controller tab: the look stick inverted
             if (app::Get().pad_invert_x) p.rx = int16_t(-1 - p.rx);
             if (app::Get().pad_invert_y) p.ry = int16_t(-1 - p.ry);
@@ -138,10 +143,17 @@ uint16_t HeldOnAnyController() {
     return held;
 }
 
+void StopRumble() {
+    std::lock_guard lock(g_lock);
+    for (SDL_Gamepad* pad : g_pads)
+        if (pad) SDL_RumbleGamepad(pad, 0, 0, 0);
+}
+
 // the motors run until set again
 void Rumble(int port, uint16_t left, uint16_t right) {
     if (app::kGame.rumble) app::kGame.rumble(port, left, right);
-    if (!app::Get().vibration) left = right = 0;
+    // off with the setting, and while the keyboard and mouse are in use (a controller left on the desk stays still)
+    if (!app::Get().vibration || !UsingPad()) left = right = 0;
     std::lock_guard lock(g_lock);
     if (port >= 0 && port < 4 && g_pads[port]) SDL_RumbleGamepad(g_pads[port], left, right, 0);
 }

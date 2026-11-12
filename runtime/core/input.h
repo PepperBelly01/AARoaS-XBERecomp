@@ -18,6 +18,7 @@ uint16_t HeldOnAnyController();  // face buttons as XINPUT_GAMEPAD_A/B/X/Y masks
 // the controller on that port, then GameInfo::pad
 Pad Poll(int port);
 void Rumble(int port, uint16_t left, uint16_t right);
+void StopRumble();  // every controller's motors off
 
 // Keyboard and mouse (keyboard.cpp). Keys and mouse buttons press the controller on port 0 through the game's
 // bindings (GameInfo::key_actions, Settings::keys); the mouse's raw movement is taken by the game side for mouse look.
@@ -67,6 +68,14 @@ void SetGameMenu(bool menu);
 // whether a left click presses A now (false while the cursor is off the menu's items)
 void PressMenuButtons(uint16_t buttons, uint32_t ms);
 void SetMenuClick(bool presses);
+// a game menu that takes Start: Enter (and a click) press it too on a page with no list (a "press start" page); escape
+// is not used (Escape is B in menus; the game side presses Start when B left the pause menu's page as it was)
+void SetMenuStart(bool enter, bool escape);
+// Escape was pressed in a game menu since the last call (it pressed B)
+bool TakeMenuEscape();
+// which was used last, the controller or the keyboard and mouse: for on-screen button icons
+bool UsingPad();
+void NoteInput(bool pad);  // input.cpp and keyboard.cpp, as either is used
 // the cursor in the window's client area, false while it is outside the window
 bool CursorInWindow(int& x, int& y, int& width, int& height);
 // the mouse looks (captured: hidden and held in the window)
