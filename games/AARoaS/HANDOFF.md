@@ -215,6 +215,10 @@ automatically through `../../cmake/XbeRecomp.cmake`; no `sdk\` copy is needed.
   miSelectedItem, GetChildByPosition). CElement::Draw 0x36B170 (+0x30 visible byte, +4 behaviour count, +8
   behaviours, each vtable[0] draw, then the children in +0x14), CElement::Send 0x36B2A0, CElement::Create
   0x36AD30.
+- **Weapon wheel with the mouse** (GameInfo::radial_menu_analog = 3, keyboard.cpp RadialOpen; user: "works
+  beautifully"): while the key bound to Y (Switch Weapon) is held, raw mouse movement points the left stick (held to
+  120 counts so turning back swings straight over, 25 dead) instead of looking; the movement keys are left out.
+- **Default keys** are the user's own layout (2026-11-12, game_info.cpp key_actions).
 - **Game menus with the mouse, phase 2** (`src/game/menus.cpp`; user: "good enough to move forward"): hover selects
   the item under the cursor, a click picks it, clicks off the items do nothing. Each element's box comes from the
   screen space draws made while it is on top of a stack kept in a CElement::Draw hook (d3d::OnScreenDraw gives each

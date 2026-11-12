@@ -13,6 +13,7 @@
 #include <atomic>
 #include <cctype>
 #include <chrono>
+#include <cmath>
 #include <mutex>
 
 #include "app/app.h"
@@ -30,6 +31,9 @@ std::mutex g_lock;
 bool g_held[kKeyCount] = {};         // virtual keys and the wheel keys
 Clock::time_point g_wheel_until[2];  // up, down
 float g_dx = 0, g_dy = 0;            // raw counts not taken yet
+// a radial menu open: the mouse's way, held to kRadialReach long, so turning back swings it straight over
+float g_radial_x = 0, g_radial_y = 0;
+constexpr float kRadialReach = 120, kRadialDead = 25;  // raw counts
 std::vector<KeyBind> g_binds;
 std::atomic<bool> g_game_menu{false};
 std::atomic<uint16_t> g_menu_buttons{0};              // held for the game side's cursor ...
@@ -47,7 +51,16 @@ bool HasBinds() {
 
 bool Active() { return g_hwnd && GetForegroundWindow() == g_hwnd; }
 
-bool Looks() { return Active() && !app::MenuOpen() && !g_game_menu.load() && HasBinds(); }
+// a radial menu held open (GameInfo::radial_menu_analog: the button its key presses, held): the mouse steers it
+bool RadialOpen() {
+    int index = app::kGame.radial_menu_analog;
+    if (index < 0 || app::MenuOpen() || g_game_menu.load()) return false;
+    for (const KeyBind& b : g_binds)
+        if (b.target == PadTarget::Analog && b.index == index && b.key && b.key < kWheelUp && g_held[b.key]) return true;
+    return false;
+}
+
+bool Looks() { return Active() && !app::MenuOpen() && !g_game_menu.load() && HasBinds() && !RadialOpen(); }
 
 // the cursor hidden and held in the client area while the mouse looks, free otherwise
 void Capture(bool on) {
@@ -207,16 +220,28 @@ bool OnWindowMessage(void* hwnd, uint32_t msg, uintptr_t wp, intptr_t lp) {
             UINT size = sizeof(ri);
             if (GetRawInputData(reinterpret_cast<HRAWINPUT>(lp), RID_INPUT, &ri, &size, sizeof(RAWINPUTHEADER)) == UINT(-1))
                 return false;
-            if (ri.header.dwType == RIM_TYPEMOUSE && !(ri.data.mouse.usFlags & MOUSE_MOVE_ABSOLUTE) && Looks()) {
-                std::lock_guard lock(g_lock);
-                g_dx += float(ri.data.mouse.lLastX);
-                g_dy += float(ri.data.mouse.lLastY);
+            if (ri.header.dwType == RIM_TYPEMOUSE && !(ri.data.mouse.usFlags & MOUSE_MOVE_ABSOLUTE)) {
+                float mx = float(ri.data.mouse.lLastX), my = float(ri.data.mouse.lLastY);
+                if (Looks()) {
+                    std::lock_guard lock(g_lock);
+                    g_dx += mx;
+                    g_dy += my;
+                } else if (Active() && RadialOpen()) {
+                    std::lock_guard lock(g_lock);
+                    g_radial_x += mx;
+                    g_radial_y += my;
+                    float length = std::sqrt(g_radial_x * g_radial_x + g_radial_y * g_radial_y);
+                    if (length > kRadialReach) {
+                        g_radial_x *= kRadialReach / length;
+                        g_radial_y *= kRadialReach / length;
+                    }
+                }
             }
             return false;
         }
         case WM_SETCURSOR:
-            Capture(Looks());
-            if (Looks() && LOWORD(lp) == HTCLIENT) {
+            Capture(Looks() || (Active() && RadialOpen()));
+            if ((Looks() || (Active() && RadialOpen())) && LOWORD(lp) == HTCLIENT) {
                 SetCursor(nullptr);
                 return true;
             }
@@ -241,7 +266,7 @@ void ReleaseAll() {
 
 bool TakeMouse(float& dx, float& dy) {
     bool looks = Looks();
-    Capture(looks);
+    Capture(looks || (Active() && RadialOpen()));  // a radial menu open: still hidden and held
     std::lock_guard lock(g_lock);
     dx = g_dx;
     dy = g_dy;
@@ -296,7 +321,11 @@ void MergeKeyboard(int port, Pad& p) {
         if (wheel[0]) p.buttons |= 1u << 0;
         if (wheel[1]) p.buttons |= 1u << 1;
     }
+    // a radial menu open: the left stick points the mouse's way (the movement keys left out); closed, forgotten
+    bool radial = !menu && RadialOpen();
+    if (!radial) g_radial_x = g_radial_y = 0;
     for (const KeyBind& b : g_binds) {
+        if (radial && b.target == PadTarget::LeftStick) continue;
         bool mouse = b.key == VK_LBUTTON || b.key == VK_RBUTTON || b.key == VK_MBUTTON || b.key == VK_XBUTTON1 ||
                      b.key == VK_XBUTTON2 || b.key >= kWheelUp;
         if (menu && mouse) continue;
@@ -330,6 +359,11 @@ void MergeKeyboard(int port, Pad& p) {
     p.ly = slow ? part(ly, p.ly) : full(ly, p.ly);
     p.rx = full(rx, p.rx);
     p.ry = full(ry, p.ry);
+    float length = std::sqrt(g_radial_x * g_radial_x + g_radial_y * g_radial_y);
+    if (radial && length > kRadialDead) {
+        p.lx = int16_t(std::clamp(g_radial_x / length * 32767.0f, -32767.0f, 32767.0f));
+        p.ly = int16_t(std::clamp(-g_radial_y / length * 32767.0f, -32767.0f, 32767.0f));  // mouse up, stick up
+    }
 }
 
 }  // namespace input

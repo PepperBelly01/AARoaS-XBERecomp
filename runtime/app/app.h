@@ -139,6 +139,9 @@ struct GameInfo {
     std::vector<input::KeyAction> key_actions;
     float mouse_y_ratio = 1.0f;  // vertical mouse look over horizontal, for the game's own difference between them
     bool aim_assist = false;     // the game's hooks can turn its aim assist off (Settings::aim_assist): the overlay offers it
+    // a radial menu (the weapon wheel) opened by holding the key that presses this analog button (0 A ... 3 Y), -1
+    // none: while it is held the mouse points the left stick instead of looking around
+    int radial_menu_analog = -1;
     // the settings file's toml::table, for what options cannot hold
     void (*load)(const void* table);
     void (*save)(void* table);
