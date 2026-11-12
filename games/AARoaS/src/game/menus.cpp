@@ -25,6 +25,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
+#include <string>
 #include <unordered_map>
 #include <vector>
 
@@ -44,6 +46,7 @@ constexpr uint32_t kStepTimeoutMs = 100;  // a step not answered by then (the pr
 constexpr float kPageWidth = 640, kPageHeight = 480;
 constexpr uint32_t kEscapeSettleMs = 250;  // Escape (B) in the pause menu: a page change shows by then
 constexpr int kNewPageElements = 8;       // that many elements not drawn before: another page
+constexpr uint32_t kSelectorAnswerMs = 150;  // a step on a row with a selector: judged no sooner
 
 struct Drawn {
     uint32_t element;
@@ -112,6 +115,126 @@ bool CursorOnPage(float& x, float& y, int& wx, int& wy) {
 
 bool Inside(const Drawn& d, float x, float y) { return d.x0 <= d.x1 && x >= d.x0 && x < d.x1 && y >= d.y0 && y < d.y1; }
 
+// --- Rows with a selector. Some pages send no selection messages (the mission select: its roles and its missions):
+// their highlight is a child of the row that moves onto the selected tile (the white corners), the tiles its siblings,
+// all one size and in a line. Found each frame: a sibling about a tile's size with its centre in one tile. The cursor
+// over another tile steps the highlight there with Left / Right (Up / Down for a column), a step once the selector has
+// stood still (it slides). A step that leaves it on the same tile: the tile cannot be selected (a locked role), given
+// up on until the cursor goes to another.
+struct SelectorRow {
+    std::vector<const Drawn*> tiles;  // in order along the line
+    const Drawn* selector = nullptr;
+    int selected = -1;                // the tile under the selector
+    bool column = false;
+};
+
+bool SameSize(const Drawn& a, const Drawn& b) {
+    return std::abs((a.x1 - a.x0) - (b.x1 - b.x0)) < 2 && std::abs((a.y1 - a.y0) - (b.y1 - b.y0)) < 2;
+}
+
+// the row under the cursor; anywhere: any such row on the page
+bool FindSelectorRow(float px, float py, SelectorRow& out, bool anywhere = false) {
+    std::vector<std::vector<const Drawn*>> children(g_last.size());
+    for (const Drawn& d : g_last)
+        if (d.parent >= 0 && d.x0 <= d.x1) children[size_t(d.parent)].push_back(&d);
+    for (size_t c = 0; c < g_last.size(); c++) {
+        const std::vector<const Drawn*>& kids = children[c];
+        if (kids.size() < 3) continue;
+        for (const Drawn* t : kids) {
+            if (!anywhere && !Inside(*t, px, py)) continue;
+            // the tiles: t's siblings its size, in its line
+            std::vector<const Drawn*> tiles;
+            for (const Drawn* k : kids)
+                if (SameSize(*k, *t) && (std::abs(k->y0 - t->y0) < 2 || std::abs(k->x0 - t->x0) < 2)) tiles.push_back(k);
+            if (tiles.size() < 2) continue;
+            bool column = std::abs(tiles[0]->x0 - tiles[1]->x0) < 2;
+            std::sort(tiles.begin(), tiles.end(), [&](const Drawn* a, const Drawn* b) { return column ? a->y0 < b->y0 : a->x0 < b->x0; });
+            // the selector: another sibling near a tile's size whose centre is in a tile
+            float tw = t->x1 - t->x0, th = t->y1 - t->y0;
+            for (const Drawn* s : kids) {
+                if (std::find(tiles.begin(), tiles.end(), s) != tiles.end()) continue;
+                float sw = s->x1 - s->x0, sh = s->y1 - s->y0;
+                if (sw < tw * 0.8f || sw > tw * 1.6f || sh < th * 0.8f || sh > th * 1.6f) continue;
+                float cx = (s->x0 + s->x1) / 2, cy = (s->y0 + s->y1) / 2;
+                for (size_t i = 0; i < tiles.size(); i++)
+                    if (Inside(*tiles[i], cx, cy)) {
+                        out = {tiles, s, int(i), column};
+                        return true;
+                    }
+            }
+        }
+    }
+    return false;
+}
+
+// true when the cursor is over such a row and it was dealt with
+bool FollowSelectorRow(float px, float py, bool moved) {
+    SelectorRow row;
+    int hovered = -1;
+    if (FindSelectorRow(px, py, row))
+        for (size_t i = 0; i < row.tiles.size(); i++)
+            if (Inside(*row.tiles[i], px, py)) hovered = int(i);
+    if (hovered < 0) {
+        // such a row on the page, the cursor off its tiles: a click does nothing (it pressed A anywhere)
+        SelectorRow any;
+        if (!FindSelectorRow(px, py, any, true)) return false;
+        input::SetMenuClick(false);
+        input::SetMenuStart(false, false);
+        return true;
+    }
+    input::SetMenuClick(hovered == row.selected);
+    input::SetMenuStart(false, false);
+    // Steps go in a burst, a press each hold and gap (the selector slides, and waiting for it each step was slow),
+    // then once it has stood still the result is looked at: on the target, done; nearer, another burst for the rest;
+    // on the tile it started from, the target cannot be selected (a locked role)
+    static uint32_t target = 0, unreachable = 0, burst_from = 0;
+    static int left = 0, dir_bit = 0;
+    static float last_x = 0, last_y = 0;
+    static int still = 0;
+    static ULONGLONG pressed_at = 0;
+    uint32_t over = row.tiles[size_t(hovered)]->element;
+    if (over != unreachable) unreachable = 0;
+    if (moved && over != unreachable && over != target) {
+        target = over;
+        left = 0;
+        burst_from = 0;
+    }
+    bool settled = std::abs(row.selector->x0 - last_x) < 0.5f && std::abs(row.selector->y0 - last_y) < 0.5f;
+    still = settled ? still + 1 : 0;
+    last_x = row.selector->x0;
+    last_y = row.selector->y0;
+    ULONGLONG now = GetTickCount64();
+    if (now - pressed_at < kStepHoldMs + kStepGapMs) return true;  // the last press let go long enough
+    if (left > 0) {                                                // the burst goes on
+        input::PressMenuButtons(uint16_t(dir_bit), kStepHoldMs);
+        pressed_at = now;
+        left--;
+        return true;
+    }
+    int goal = -1;
+    for (size_t i = 0; i < row.tiles.size(); i++)
+        if (row.tiles[i]->element == target) goal = int(i);
+    uint32_t at = row.tiles[size_t(row.selected)]->element;
+    if (goal < 0 || goal == row.selected) {
+        burst_from = 0;
+        return true;
+    }
+    if (still < 2 || now - pressed_at < kSelectorAnswerMs) return true;  // the last burst still being taken
+    if (burst_from && burst_from == at) {                               // it did not move: the target is locked
+        unreachable = target;
+        target = 0;
+        burst_from = 0;
+        return true;
+    }
+    int ahead = goal - row.selected;
+    dir_bit = row.column ? (ahead > 0 ? 1 << 1 : 1 << 0) : (ahead > 0 ? 1 << 3 : 1 << 2);
+    left = std::abs(ahead) - 1;
+    burst_from = at;
+    input::PressMenuButtons(uint16_t(dir_bit), kStepHoldMs);
+    pressed_at = now;
+    return true;
+}
+
 // once a frame, with the last whole frame's elements: hover and click
 void FollowCursor() {
     if (input::MouseLooks()) {  // play: the mouse looks
@@ -147,6 +270,7 @@ void FollowCursor() {
     bool moved = on_page && (wx != g_last_x || wy != g_last_y);
     g_last_x = wx;
     g_last_y = wy;
+    if (on_page && FollowSelectorRow(px, py, moved)) return;
     // the selected items drawn (a list each); the list worked is the one with an item under the cursor, else the one
     // in front
     int selected = -1, topmost = -1;
@@ -240,6 +364,63 @@ void FollowCursor() {
     g_step_at = now;
 }
 
+// --- Probe (F9 in a menu, 10 seconds): the rarer messages (Send hook) and the elements that jump after standing
+// still, each with where it is, to find how a page without selection messages (the mission select) shows its highlight
+ULONGLONG g_probe_until = 0;
+int g_probe_lines = 0;
+
+bool Probing() { return g_probe_until && GetTickCount64() < g_probe_until && g_probe_lines > 0; }
+
+void ProbeFrame() {
+    static bool held = false;
+    bool down = (GetAsyncKeyState(VK_F9) & 0x8000) != 0;
+    if (down && !held) {
+        g_probe_until = GetTickCount64() + 10000;
+        g_probe_lines = 600;
+        LOGR("menus: probe for 10 seconds, %zu elements drawn", g_last.size());
+    }
+    held = down;
+    struct Was {
+        float x0, y0, x1, y1;
+        uint32_t moved_at;
+    };
+    static std::unordered_map<uint32_t, Was> was;
+    if (!Probing()) {
+        was.clear();
+        return;
+    }
+    for (const Drawn& d : g_last) {
+        if (d.x0 > d.x1) continue;
+        auto it = was.find(d.element);
+        if (it == was.end()) {
+            was[d.element] = {d.x0, d.y0, d.x1, d.y1, 0};
+            continue;
+        }
+        Was& w = it->second;
+        bool moved = std::abs(d.x0 - w.x0) > 4 || std::abs(d.y0 - w.y0) > 4;
+        if (moved && w.moved_at + 1 != g_frame_no && g_probe_lines-- > 0)
+            LOGR("menus: jumped %08X parent %08X pos %u from %.0f,%.0f-%.0f,%.0f to %.0f,%.0f-%.0f,%.0f", d.element,
+                 d.parent >= 0 ? g_last[size_t(d.parent)].element : 0, d.position, w.x0, w.y0, w.x1, w.y1, d.x0, d.y0,
+                 d.x1, d.y1);
+        if (moved) w.moved_at = g_frame_no;
+        w.x0 = d.x0;
+        w.y0 = d.y0;
+        w.x1 = d.x1;
+        w.y1 = d.y1;
+    }
+}
+
+std::string WhereIs(uint32_t element) {
+    for (const Drawn& d : g_last)
+        if (d.element == element) {
+            char text[96];
+            std::snprintf(text, sizeof(text), "parent %08X pos %u box %.0f,%.0f-%.0f,%.0f",
+                          d.parent >= 0 ? g_last[size_t(d.parent)].element : 0, d.position, d.x0, d.y0, d.x1, d.y1);
+            return text;
+        }
+    return "not drawn";
+}
+
 void NewFrame() {
     uint32_t now = d3d::Presents();
     if (now == g_frame_no) return;
@@ -249,6 +430,7 @@ void NewFrame() {
     g_frame.clear();
     g_stack.clear();
     FollowCursor();
+    ProbeFrame();
 }
 
 }  // namespace
@@ -278,6 +460,12 @@ X86_FUNC(sub_0036B170) {
 X86_EXTERN_FUNC(__imp__sub_0036B2A0);
 X86_FUNC(sub_0036B2A0) {
     uint32_t element = ctx.ecx, message = X86_MEM32(ctx.esp + 4);
+    if (Probing() && Readable(message, 16)) {
+        uint32_t type = X86_MEM32(message);
+        if (type != 2 && type != 8 && type != 9 && type != 0xB && type != 0x13 && g_probe_lines-- > 0)  // per frame
+            LOGR("menus: send %08X type %X: %08X %08X %08X, %s", element, type, X86_MEM32(message + 4),
+                 X86_MEM32(message + 8), X86_MEM32(message + 12), WhereIs(element).c_str());
+    }
     // a message goes to the item, then down through all inside it, the same message: its first receiver is the item
     static uint32_t last_message = 0, last_frame = ~0u, last_code = 0;
     if (Readable(message, 12) && X86_MEM32(message) == kSelectMessage) {

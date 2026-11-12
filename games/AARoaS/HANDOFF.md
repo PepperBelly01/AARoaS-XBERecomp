@@ -238,8 +238,13 @@ automatically through `../../cmake/XbeRecomp.cmake`; no `sdk\` copy is needed.
   is patched in place (the game copies `UI\XBox\*.pkg` there and reads that). text.cpp: strINTX.pkg's strings are
   type 4, length, UTF-16, so a string keeps its length (shorter ones padded): "PLEASE PRESS ENTER TO BEGIN", "Use Q
   and E to view" (the Personnel Jacket's pages). User confirmed the title text.
-- **Known, for later:** the mission select (the roles and missions grids) sends no selection message, so the mouse
-  does not hover there (the arrows work).
+- **The mission select with the mouse** (menus.cpp FollowSelectorRow; user confirmed): its roles and missions rows send
+  no selection message. Their highlight (the white corners) is a child of the row that slides onto the selected tile
+  (roles 00F204D4 pos 7, ~62 px a tile; missions 00F882E4 pos 10, ~86 px), found by an F9 probe logging elements that
+  jump. Found each frame: siblings of one size in a line plus a sibling 0.8 to 1.6 tiles in size whose centre is in
+  one. Hover presses Left / Right (Up / Down for a column) in a burst for the distance, then checks once the
+  selector stands still (waiting for it each step was slow); a burst that leaves it where it was marks the tile locked.
+  With such a row on the page a click off its tiles does nothing. A moves from roles to missions, Esc back.
 - **Game menus with the mouse, phase 2** (`src/game/menus.cpp`; user: "good enough to move forward"): hover selects
   the item under the cursor, a click picks it, clicks off the items do nothing. Each element's box comes from the
   screen space draws made while it is on top of a stack kept in a CElement::Draw hook (d3d::OnScreenDraw gives each
