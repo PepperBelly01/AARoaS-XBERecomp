@@ -219,6 +219,11 @@ automatically through `../../cmake/XbeRecomp.cmake`; no `sdk\` copy is needed.
   through one `Decide` in draw order: a frame whose first 2D draw spans the width is a menu over the 3D view
   (pause, briefing, objectives) and stays 4:3 centred, not hidden; else runs of touching draws (a word space
   across) take one anchor, matched to last frame by box so typed out text does not flicker.
+- **Ambient occlusion** (SSAO/GTAO, user confirmed): kAoHlsl in d3d12.cpp from the reference, depth reversed (z
+  buffer: view z = -m32 / (depth - (1 - m22)) from the camera projection; w buffer from the draws' zparams). Armed
+  in widescreen.cpp with the world camera's projection (d3d::ArmOcclusion); d3d8.cpp runs it before the first depth
+  clear after 48+ draws (the game clears depth before the first person weapon), else at the second camera
+  (cutscenes). GTAO looks strong; a strength slider may be wanted.
 - **Frame rate**: GameInfo::max_fps = 60. Weapon recoil (and maybe more) is applied per frame: at 200 FPS it threw
   the view. The user wants uncapped frame rates later: find the recoil code and scale it by frame time.
 
