@@ -37,6 +37,10 @@ struct Settings {
     bool invert_mouse_x = false, invert_mouse_y = false;
     bool aim_assist = true;  // the game's own aim lock or assist, for a game whose hooks honour it (GameInfo::aim_assist)
     bool auto_zoom = true;   // the game's zoom onto a target shown, with aim assist on or off (GameInfo::aim_assist)
+    // with auto_zoom: the mouse's turn slowed by the zoom onto a target, zoom_sensitivity_percent of the way to keeping
+    // the picture's speed on screen (the game as it was: on, 100); off, the turn keeps its speed from before the zoom
+    bool zoom_sensitivity = false;
+    uint32_t zoom_sensitivity_percent = 100;
     // per GameInfo::key_actions, its two keys (input::KeyName codes, 0 none); filled with the defaults at load
     std::vector<std::array<uint16_t, 2>> keys;
     bool vibration = true;

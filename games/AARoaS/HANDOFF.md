@@ -225,7 +225,8 @@ automatically through `../../cmake/XbeRecomp.cmake`; no `sdk\` copy is needed.
     limits are kept. Only while a target is held or within 1 s: undoing always broke cutscene pans.
   - Target Zoom: with a target the game zooms by its distance (AutoZoom: FOV per target). Off, the projection is
     drawn at the angle from before the target. The mouse's turn follows that angle either way (it slowed with the
-    zoom: felt like sticking).
+    zoom: felt like sticking). Zoom Sensitivity (on/off, Strength 10-100%, under Target Zoom) slows it by
+    (zoomed / before)^strength instead; off by default (the original game is on at 100%). User confirmed.
   - Release builds drop LOGI: diagnostics must use LOGR (one session of data was lost to this).
 - **Widescreen** (`src\game\widescreen.cpp`): FCameraSceneNode::UpdateMatrices 0x1F3E50 builds the projection with
   FPerspectiveMatrix 0x1F1AC0 (call returns to 0x1F42F7); M[0][0] *= 0.75 on 16:9 (Hor+).

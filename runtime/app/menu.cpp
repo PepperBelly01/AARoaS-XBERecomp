@@ -354,6 +354,23 @@ constexpr const char* kAimAssistHint =
 constexpr const char* kTargetZoomHint =
     "Sighted on an enemy, the game zooms in by how far away they are, so each target has its own zoom. Off, the "
     "zoom stays as your sights or scope have it. Works with Aim Assist on or off.";
+constexpr const char* kZoomSensitivityHint =
+    "With Target Zoom: as the game zooms in on a target, your aim slows down to match, for finer aim on far "
+    "targets. Off, your aim keeps the same speed however far it zooms. The original game has this on at 100%.";
+constexpr const char* kZoomStrengthHint =
+    "How much the target zoom slows your aim. 100%: the picture moves as fast on screen as before the zoom. Lower: "
+    "less slowdown.";
+
+// Target Zoom, and under it Zoom Sensitivity with its strength
+void DrawTargetZoom(Settings& s) {
+    Toggle("Target Zoom", s.auto_zoom, kTargetZoomHint);
+    if (!s.auto_zoom) return;
+    Toggle("Zoom Sensitivity", s.zoom_sensitivity, kZoomSensitivityHint);
+    if (!s.zoom_sensitivity) return;
+    std::vector<Choice> shares;
+    for (uint32_t p = 10; p <= 100; p += 10) shares.push_back({p, std::to_string(p) + "%"});
+    Cycle("Strength", s.zoom_sensitivity_percent, shares, kZoomStrengthHint);
+}
 
 void DrawMouseKeyboard() {
     Settings& s = g_draft;
@@ -364,7 +381,7 @@ void DrawMouseKeyboard() {
     Toggle("Invert Y Axis", s.invert_mouse_y, "Mouse forward looks down.");
     if (kGame.aim_assist) {
         Toggle("Aim Assist", s.aim_assist, kAimAssistHint);
-        Toggle("Target Zoom", s.auto_zoom, kTargetZoomHint);
+        DrawTargetZoom(s);
     }
     Section("Keyboard");
     for (int i = 0; i < int(kGame.key_actions.size()); i++) KeyRow(i);
@@ -378,7 +395,7 @@ void DrawController() {
     Toggle("Invert Y Axis", s.pad_invert_y, "The look stick: up looks down.");
     if (kGame.aim_assist) {  // the same settings as in Mouse and Keyboard
         Toggle("Aim Assist", s.aim_assist, kAimAssistHint);
-        Toggle("Target Zoom", s.auto_zoom, kTargetZoomHint);
+        DrawTargetZoom(s);
     }
 }
 
@@ -411,6 +428,8 @@ void ResetTab() {
         s.invert_mouse_y = d.invert_mouse_y;
         s.aim_assist = d.aim_assist;
         s.auto_zoom = d.auto_zoom;
+        s.zoom_sensitivity = d.zoom_sensitivity;
+        s.zoom_sensitivity_percent = d.zoom_sensitivity_percent;
         s.keys = d.keys;
     } else {
         s.vibration = d.vibration;

@@ -237,7 +237,8 @@ float ShownFov() { return g_shown_fov; }
 int AimAssist(uint8_t* base, uint32_t viewport) {
     g_target = false;
     const app::Settings& s = app::Get();
-    if (s.aim_assist && s.auto_zoom) return 0;  // the game as it was: nothing to watch
+    // the game as it was (the lock, its zoom, the turn slowed fully by it): nothing to watch
+    if (s.aim_assist && s.auto_zoom && s.zoom_sensitivity && s.zoom_sensitivity_percent >= 100) return 0;
     uint32_t controller = X86_MEM32(viewport + 0x34);
     if (!Readable(controller, 0x200) || !Calibrate(base, controller)) return 0;
 

@@ -3,6 +3,7 @@
 // (UXboxViewport::UpdateInput, 0x2F4D00) the mouse's raw counts go to UEngine::InputEvent as IK_MouseX and IK_MouseY
 // axis events, as the PC viewport sends them. Keys and mouse buttons press the controller (GameInfo::key_actions).
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <fstream>
 #include <vector>
@@ -295,8 +296,14 @@ X86_FUNC(sub_002F4D00) {
 
     if (view) {
         // aiming zooms: the turn scales with the camera's angle, as Unreal's own mouse look does
-        float fov = ShownFov() > 1 ? ShownFov() : g_cam.fov;  // aim_assist.cpp: the zoom as drawn
+        // the angle from before any zoom onto a target (aim_assist.cpp); sights and scopes slow the turn by theirs
+        float fov = ShownFov() > 1 ? ShownFov() : g_cam.fov;
         float zoom = fov > 1 && app::kGame.fov > 0 ? fov / app::kGame.fov : 1.0f;
+        // Zoom Sensitivity: the zoom onto a target slows the turn too, by the setting's share (100%: the picture moves
+        // as fast on screen as before the zoom)
+        const app::Settings& set = app::Get();
+        if (set.auto_zoom && set.zoom_sensitivity && g_cam.fov > 1 && fov > 1 && g_cam.fov < fov)
+            zoom *= std::pow(g_cam.fov / fov, float(set.zoom_sensitivity_percent) / 100.0f);
         float ux = dx * kUnitsPerCount * zoom + g_rest_x, uy = dy * kUnitsPerCount * zoom + g_rest_y;
         int32_t ix = int32_t(ux), iy = int32_t(uy);
         g_rest_x = ux - float(ix);
