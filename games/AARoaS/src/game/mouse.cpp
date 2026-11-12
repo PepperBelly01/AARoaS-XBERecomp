@@ -106,11 +106,12 @@ struct Find {
 };
 std::vector<Find> g_finds;                // matching pairs while searching
 std::vector<uint64_t> g_dropped;          // field << 32 | offset that the camera did not follow
-// found in play (viewport +0x34 is UPlayer::Actor, the PlayerController; +0x124 its Rotation): used from the start,
-// still checked, and searched for again if the camera does not follow
+// found in play (viewport +0x34 is UPlayer::Actor, the PlayerController; +0x124 its Rotation): used from the start
+// and trusted, never dropped (in the main menu the camera does not follow the controller, and checking it there threw
+// it out). Only a location a search finds is checked.
 bool g_found = true;
 Find g_use{0x34, 0x124, 0, 0};
-int g_good = 0, g_bad = 0;                // checks of the find in use
+int g_good = kVerify, g_bad = 0;          // checks of the find in use; the known one counts as passed
 bool g_expect = false;
 int16_t g_expect_yaw = 0;
 float g_rest_x = 0, g_rest_y = 0;         // fractions of a unit not written yet
