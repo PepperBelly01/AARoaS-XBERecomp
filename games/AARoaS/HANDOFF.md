@@ -231,7 +231,9 @@ automatically through `../../cmake/XbeRecomp.cmake`; no `sdk\` copy is needed.
   button, trigger or stick well off centre): replacements under `textures\replacement\@keyboard\` form a group
   (texturedumper SetPackGroup, any `@name` folder), on while the keyboard and mouse are used. `tools\make_key_icons.ps1`
   draws them at 4x: the menus' atlas 128x128_cee43c3773341320 (A X B / Start Y / L Black / White R) as Enter X Esc /
-  Esc Y / Q Tab / Z E, the HUD's A 32x32_e4dd91ad26fcd422 as F. User confirmed the switch.
+  Esc Y / Q Tab / Z E, the HUD's A 32x32_e4dd91ad26fcd422 as F. User confirmed the switch. The tutorial boxes use
+  T-UIAAC.utx's buttons_xbox_* (32x32 DXT5, format 15; their A is the HUD's): keys worked out from the package (the
+  level 0 data is the export's last 1034 bytes but 10) and drawn as play's keys and mouse buttons.
 - **Rumble only while the controller is in use**; switching to keyboard or mouse stops its motors (user confirmed).
 - **Text and file patches** (GameInfo::patch_file, kernel/files.cpp): a disc file's stand-in in `overrides\` beside the
   exe is read instead, written from the game's patch the first time the file is opened; the cache drive's (Z:) copy
@@ -341,8 +343,9 @@ Still to do: key icons for the keyboard in menus and prompts (texture replacemen
 wants this next),
 a freelook key (the user's idea: the camera pans while the body and weapon keep facing ahead; the after-tick camera
 correction in mouse.cpp shows the camera can be set apart from Rotation, as the view already is behind the pause
-menu), the tutorial text boxes' inline button icons (still the console's X etc.: likely a font glyph or its own
-texture, not the menus' icons), a controller combo to open the
+menu), play's key icons (the HUD's A, the tutorial boxes') following the player's bindings (drawn by the game at start
+and on a rebind, in place of make_key_icons.ps1's fixed images; the icon to action mapping is in that script). The
+menus' keys and their atlas stay fixed: the user wants menu navigation safe from odd bindings, a controller combo to open the
 overlay, overlay navigation for non-Xbox pads (ImGui's backend reads XInput pad 0 only).
 
 Mouse and keyboard, 16:9 widescreen, resolutions up to 4K, FoV, SMAA, ambient occlusion, and a settings overlay.
