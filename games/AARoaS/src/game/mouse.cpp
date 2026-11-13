@@ -197,6 +197,7 @@ void UpdateKeyIcons();                              // key_icons.cpp
 void StanceFrame(uint8_t* base, uint32_t viewport);  // stance.cpp
 void CutsceneFrame(uint8_t* base, uint32_t viewport);  // cutscene.cpp
 bool InCutscene();                                   // cutscene.cpp
+void LookSpringDefault(X86Context& ctx, uint8_t* base, uint32_t controller);  // below
 void DrawDistanceFrame(uint8_t* base, uint32_t viewport);  // drawdistance.cpp
 
 // the world camera's rotation as this frame builds it (widescreen.cpp's UpdateMatrices hook, the frame's first)
@@ -369,6 +370,7 @@ X86_FUNC(sub_002F4D00) {
     CutsceneFrame(base, player);  // cutscene.cpp
     DrawDistanceFrame(base, player);  // drawdistance.cpp: Grass Distance
     bool paused = GamePaused(base, player);
+    if (gpu::screen2d::Frame3D() && !paused) LookSpringDefault(ctx, base, X86_MEM32(player + 0x34));  // below
     input::SetGameMenu(!gpu::screen2d::Frame3D() || paused);
     MenusPaused(paused);  // menus.cpp: Escape closes the pause menu from its first page
     // the button icons follow the device used last: the keyboard's and mouse's (textures\replacement\@keyboard\,
@@ -469,4 +471,51 @@ X86_FUNC(sub_002F4D00) {
     ctx.ecx = engine;
     if (dy != 0) kernel::CallGuest(ctx, fn, {player, kMouseY, kAxis, FloatBits(dy)});
     ctx.eax = eax;
+}
+
+// --- Look Spring off by default: the option lives in the player's profile (new ones start with it on; xboxuser.ini's
+// bSnapToLevel is already False and is not it). The first time play runs with this build, it is switched off once and
+// that noted in the settings file (look_spring_default_applied), so a player who turns it on keeps it
+bool g_look_spring_applied = false;  // GameInfo::options
+
+// the player's options object, as the game's input reaches it from the controller (0x33050: 0xEF670, 0x1AF00, 0x3DB80)
+uint32_t PlayerOptions(X86Context& ctx, uint32_t controller) {
+    uint32_t ecx = ctx.ecx, at = controller;
+    for (uint32_t fn : {0xEF670u, 0x1AF00u, 0x3DB80u}) {
+        if (!at) break;
+        ctx.ecx = at;
+        at = kernel::CallGuest(ctx, fn, {});
+    }
+    ctx.ecx = ecx;
+    return at;
+}
+
+void LookSpringDefault(X86Context& ctx, uint8_t* base, uint32_t controller) {
+    if (g_look_spring_applied || !controller) return;
+    uint32_t options = PlayerOptions(ctx, controller);
+    if (!options || !Readable(options + 0x78, 1)) return;
+    X86_MEM8(options + 0x78) &= uint8_t(~0x02);
+    g_look_spring_applied = true;
+    app::Save();
+    LOGR("look spring: off by default (the player's options %08X), noted in the settings", options);
+}
+
+// --- Look Spring off for the keyboard and mouse. The game's Look Spring (its Controller options) eases the view back
+// level as the player moves while the look axes are idle: 0x1C26B, inside the controller's rotation update (0x1C240),
+// asks the player's options object (0x3DB80, thiscall on what ecx holds there) for it, +0x78 bit 2. The mouse turns the
+// view without the axes, so the spring pulled against it. While the keyboard and mouse are in use the bit is cleared
+// around that code and put back at once (the option shown and saved stays the player's); the controller has it as set
+X86_EXTERN_FUNC(__imp__sub_0001C26B);
+X86_FUNC(sub_0001C26B) {
+    constexpr uint32_t kOptions = 0x3DB80, kSpringAt = 0x78;
+    constexpr uint8_t kSpring = 0x02;
+    if (input::UsingPad()) {
+        __imp__sub_0001C26B(ctx, base);
+        return;
+    }
+    uint32_t options = kernel::CallGuest(ctx, kOptions, {});
+    bool on = options && (X86_MEM8(options + kSpringAt) & kSpring);
+    if (on) X86_MEM8(options + kSpringAt) &= uint8_t(~kSpring);
+    __imp__sub_0001C26B(ctx, base);
+    if (on) X86_MEM8(options + kSpringAt) |= kSpring;
 }

@@ -421,6 +421,14 @@ automatically through `../../cmake/XbeRecomp.cmake`; no `sdk\` copy is needed.
   button is up (the opened page took it as A and closed). Editing there (X, then the tabs' Q and E gone) the cursor is
   not followed: the field's arrows looked like a selector row and stepped through the values.
 
+- **Look Spring** (mouse.cpp; user confirmed 2026-11-13): the game's Controller option eases the view level while
+  moving with the look axes idle: 0x1C26B, inside the controller's rotation update 0x1C240, tests the player's options
+  object (0x3DB80) +0x78 bit 0x02. The mouse never feeds the axes, so it pulled against the mouse: with the keyboard
+  and mouse in use the bit is cleared around that code and put back at once (the shown and saved option stays the
+  player's); the controller has it as set. Off by default: the first time play runs with this build it is cleared
+  once in the profile (reached from the controller: 0xEF670, 0x1AF00, 0x3DB80) and look_spring_default_applied is
+  saved, so turning it on sticks (once per install, not per profile; xboxuser.ini's bSnapToLevel is not it).
+
 ## Future: PC features the user wants (paused 2026-11-10)
 Still to do (2026-11-12): the lowered gun under Free Look (see Free Look), a controller combo to open the overlay, overlay navigation for non-Xbox pads (ImGui's backend reads XInput pad 0 only).
 

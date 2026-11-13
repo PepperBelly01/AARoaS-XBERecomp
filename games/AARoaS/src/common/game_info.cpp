@@ -7,6 +7,7 @@ static const bool g_aspect_default = (app::Get().aspect = app::kAspect4x3, true)
 void PatchUserIni();  // mouse.cpp: the game's mouse acceleration and smoothing off
 bool PatchGameText(const char* path, std::vector<uint8_t>& data);  // text.cpp
 void StancePad(int port, input::Pad& pad);  // stance.cpp
+extern bool g_look_spring_applied;  // mouse.cpp
 
 // America's Army: Rise of a Soldier (Xbox, USA). XDK 5849, Unreal Engine 2 based.
 const app::GameInfo app::kGame = {
@@ -19,7 +20,7 @@ const app::GameInfo app::kGame = {
     .missing = L"Put America's Army: Rise of a Soldier in the assets folder: its disc image (.iso), or default.xbe "
                L"with its folders (MapsXBoxL, System, TexturesXBoxW, ...) beside it.",
     .images = {{"default.xbe", "AARoaS"}},
-    .options = {},
+    .options = {{"look_spring_default_applied", &g_look_spring_applied, nullptr}},  // mouse.cpp: Look Spring off once
     .fov = 75,  // the player camera's angle (widescreen.cpp)
     .screen_2d = true,
     .skip_intros = true,  // intro.cpp
