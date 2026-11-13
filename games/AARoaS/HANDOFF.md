@@ -303,7 +303,8 @@ automatically through `../../cmake/XbeRecomp.cmake`; no `sdk\` copy is needed.
   4:3. The subtitle box spans the full width in the 4:3 layout, behind the ammo panel and compass.
 - **Hide HUD**: the same canvas draws are dropped in 3D frames (not full width ones).
 - **Skip Intros** (`src\game\intro.cpp`): the four boot movies (table 0x5EDA70) are each a call of 0x300470; the
-  per-frame 0x2F4540 returns 0 for them.
+  per-frame 0x2F4540 returns 0 for them, only while one of those calls runs (user confirmed 2026-11-13): the Roles and
+  Extras films step 0x2F4540 without a 0x300470 call, so with the boot count alone they were ended too.
 
 - **SMAA** (`d3d12.cpp` Smaa, iryoku/smaa MIT in smaa_shader.h / smaa_textures.h): three full screen passes over
   the shown frame before the blit.
