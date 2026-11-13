@@ -68,6 +68,8 @@ void SetGameMenu(bool menu);
 // a game menu, for the game side's cursor: Pad::buttons bits held on port 0 for ms (a step of the selection), and
 // whether a left click presses A now (false while the cursor is off the menu's items)
 void PressMenuButtons(uint16_t buttons, uint32_t ms);
+// the same for Pad::analog buttons (A B X Y black white, the triggers), a bit each: a menu's on-screen prompt clicked
+void PressMenuAnalog(uint8_t analogs, uint32_t ms);
 void SetMenuClick(bool presses);
 // a game menu that takes Start: Enter (and a click) press it too on a page with no list (a "press start" page); escape
 // is not used (Escape is B in menus; the game side presses Start when B left the pause menu's page as it was)

@@ -37,6 +37,8 @@ constexpr float kRadialReach = 120, kRadialDead = 25;  // raw counts
 std::vector<KeyBind> g_binds;
 std::atomic<bool> g_game_menu{false};
 std::atomic<uint16_t> g_menu_buttons{0};              // held for the game side's cursor ...
+std::atomic<uint8_t> g_menu_analogs{0};               // PressMenuAnalog's, held ...
+std::atomic<int64_t> g_menu_analogs_until{0};         // ... until then
 std::atomic<int64_t> g_menu_buttons_until{0};         // ... until then (steady clock, ms)
 std::atomic<bool> g_menu_click{true};                 // a left click presses A
 std::atomic<bool> g_enter_start{false}, g_escape_start{false};  // SetMenuStart
@@ -286,6 +288,11 @@ int64_t NowMs() {
     return std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now().time_since_epoch()).count();
 }
 
+void PressMenuAnalog(uint8_t analogs, uint32_t ms) {
+    g_menu_analogs = analogs;
+    g_menu_analogs_until = NowMs() + ms;
+}
+
 void PressMenuButtons(uint16_t buttons, uint32_t ms) {
     g_menu_buttons = buttons;
     g_menu_buttons_until = NowMs() + ms;
@@ -370,6 +377,9 @@ void MergeKeyboard(int port, Pad& p) {
         if (held(VK_LEFT)) p.buttons |= 1u << 2;
         if (held(VK_RIGHT)) p.buttons |= 1u << 3;
         if (NowMs() < g_menu_buttons_until.load()) p.buttons |= g_menu_buttons.load();
+        if (NowMs() < g_menu_analogs_until.load())
+            for (int i = 0; i < 8; i++)
+                if (g_menu_analogs.load() & (1u << i)) p.analog[i] = 0xFF;
         return;
     }
     // a radial menu open: the left stick points the mouse's way (the movement keys left out); closed, forgotten

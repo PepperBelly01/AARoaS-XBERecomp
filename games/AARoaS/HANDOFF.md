@@ -396,6 +396,16 @@ automatically through `../../cmake/XbeRecomp.cmake`; no `sdk\` copy is needed.
   - The rainy obstacle course is CPU bound (resolution, AA, AO change nothing): ~150-180 uncapped, 300+ in places,
     without this code too (the user compared). The game's grass and particles: for a later performance pass.
 
+- **Menu prompts as buttons** (menus.cpp; user confirmed 2026-11-13): d3d::ScreenDraw now tells each screen draw's
+  stage 0 texture (size from its Format), its FVF texture coordinates, and the first two vertices' raw floats. The
+  menus draw through a vertex shader, 48 byte vertices, texture coordinates at +32: the button sheet's draws (128x128,
+  quarter cells) are the prompts, its cell the button (A X B / Start Y / left trigger Black / White right trigger);
+  ones drawn off the page (hidden tabs) left out. A click on a prompt or its label presses it (input::PressMenuAnalog,
+  new, for the face buttons and triggers); a page showing prompts takes no click elsewhere as A. On a tabbed page with
+  an X (the Personnel Jacket) a click on the selected row presses X, Edit. A click used so is not A again until the
+  button is up (the opened page took it as A and closed). Editing there (X, then the tabs' Q and E gone) the cursor is
+  not followed: the field's arrows looked like a selector row and stepped through the values.
+
 ## Future: PC features the user wants (paused 2026-11-10)
 Still to do (2026-11-12): in 16:9 two suns show depending on the view (not in 4:3; the user's screenshots: likely the flare's 2D, see 2D that follows the world; for the visual polish pass), the lowered gun under Free Look (see Free Look), a controller combo to open the overlay, overlay navigation for non-Xbox pads (ImGui's backend reads XInput pad 0 only).
 

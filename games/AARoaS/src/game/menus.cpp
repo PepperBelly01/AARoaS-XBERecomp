@@ -13,8 +13,10 @@
 //
 // So the cursor: when the mouse moves over another item of the list the selection is in, Up or Down (Left or Right
 // for a row of items) is pressed for it, a step at a time, each once the last was answered, until that item is
-// selected. A left click presses A over the selected item (or anywhere on a screen with no list, a "press A to go on"
-// page), and does nothing off the list's items.
+// selected. A left click presses A over the selected item (or anywhere on a screen with no list and no button prompts,
+// a "press A to go on" page), and does nothing off the list's items. The button prompts drawn (the menus' button
+// sheet, told by the screen draws' texture and cell) are buttons: a click on one or its label presses its button. On a
+// tabbed page with an Edit (the Personnel Jacket) a click on the selected row presses X, Edit: A there leaves the page.
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
@@ -80,14 +82,76 @@ uint32_t g_pause_frame = 0;  // the Swap the pause began in
 
 bool Readable(uint32_t a, uint32_t n) { return a >= 0x10000 && mem::IsCommitted(a) && mem::IsCommitted(a + n - 1); }
 
-void OnScreenDraw(float x0, float y0, float x1, float y1) {
+// --- The button prompts (the menus' button sheet, 128x128: 32x32 cells, row 1 A X B, row 2 Start Y, row 3 left trigger
+// Black, row 4 White right trigger; toolsmake_key_icons.ps1): each one drawn, with its box, so a click on it (or the label
+// beside it) presses its button
+struct Glyph {
+    int col, row;
+    float x0, y0, x1, y1;
+};
+std::vector<Glyph> g_glyphs, g_last_glyphs;  // this frame's, the last whole frame's
+
+void NoteGlyph(const d3d::ScreenDraw& s) {
+    if (s.tex_width != 128 || s.tex_height != 128) return;
+    // the menus draw through a vertex shader: 48 byte vertices, the texture coordinates at +32 (seen); the first two
+    // vertices are a quad's top edge, left to right
+    float u0 = s.u0, u1 = s.u1, v0 = s.v0;
+    if (!s.uv) {
+        if (s.stride != 48) return;
+        u0 = std::min(s.raw[0][8], s.raw[1][8]);
+        u1 = std::max(s.raw[0][8], s.raw[1][8]);
+        v0 = s.raw[0][9];
+    }
+    if (std::abs(u1 - u0 - 0.25f) > 0.02f) return;  // a cell across (inset half a texel each side)
+    int col = int(std::lround(u0 * 4)), row = int(std::lround(v0 * 4));
+    if (std::abs(u0 * 4 - col) > 0.1f || std::abs(v0 * 4 - row) > 0.1f || col > 3 || row > 3) return;
+    if (s.x1 <= 0 || s.x0 >= kPageWidth) return;  // a tab not shown, drawn off the page
+    float w = s.x1 - s.x0, h = s.y1 - s.y0;
+    if (w < 8 || h < 8 || w > 80 || h > 80) return;
+    if (g_glyphs.size() < 32) g_glyphs.push_back({col, row, s.x0, s.y0, s.x1, s.y1});
+}
+
+void OnScreenDraw(const d3d::ScreenDraw& s) {
+    NoteGlyph(s);
     if (g_stack.empty()) return;
+    float x0 = s.x0, y0 = s.y0, x1 = s.x1, y1 = s.y1;
     Drawn& d = g_frame[size_t(g_stack.back())];
     d.x0 = std::min(d.x0, x0);
     d.y0 = std::min(d.y0, y0);
     d.x1 = std::max(d.x1, x1);
     d.y1 = std::max(d.y1, y1);
     d.draws++;
+}
+
+// a prompt's press: an analog button's bit (Pad::analog), or Start
+void PressGlyph(const Glyph& g) {
+    static const int kAnalog[4][4] = {{0, 2, 1, -1}, {-2, 3, -1, -1}, {6, 4, -1, -1}, {5, 7, -1, -1}};  // [row][col], -2 Start
+    int a = kAnalog[g.row][g.col];
+    if (a == -2) input::PressMenuButtons(1u << 4, 2 * 34);
+    else if (a >= 0) input::PressMenuAnalog(uint8_t(1u << a), 2 * 34);
+    LOGR("menus: prompt clicked (sheet cell %d,%d)", g.col, g.row);
+}
+
+// the prompt under the cursor: its icon and, for all but the shoulders (the tabs' Q and E), the label right of it up to the
+// next prompt on its line
+const Glyph* GlyphAt(float x, float y) {
+    for (const Glyph& g : g_last_glyphs) {
+        float right = g.x1;
+        bool shoulder = g.row == 2 && g.col == 0 || g.row == 3 && g.col == 1;
+        if (!shoulder) {
+            right = g.x1 + 130;
+            for (const Glyph& o : g_last_glyphs)
+                if (o.x0 > g.x1 && o.y0 < g.y1 && o.y1 > g.y0) right = std::min(right, o.x0 - 2);
+        }
+        if (x >= g.x0 && x < right && y >= g.y0 - 4 && y < g.y1 + 4) return &g;
+    }
+    return nullptr;
+}
+
+bool HasGlyph(int col, int row) {
+    for (const Glyph& g : g_last_glyphs)
+        if (g.col == col && g.row == row) return true;
+    return false;
 }
 
 // each element's box widened by all below it (children follow their parent in draw order)
@@ -270,6 +334,43 @@ void FollowCursor() {
     bool moved = on_page && (wx != g_last_x || wy != g_last_y);
     g_last_x = wx;
     g_last_y = wy;
+    // a click (the left button going down), for the prompts and Edit below; the game sees a click as A only where
+    // SetMenuClick allows it
+    static bool was_down = false;
+    bool down = (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0;
+    bool click = on_page && down && !was_down;
+    was_down = down;
+    // a click used here (a prompt, Edit) is not also A while the button stays down: the page it opened took the held
+    // button as A and closed again
+    // editing on a tabbed page (X there, clicked or pressed, and the tabs' Q and E gone): the field's arrows looked like a row
+    // of tiles, and following the cursor stepped through its values. Only the prompts are followed until the tabs are back
+    static bool editing = false, was_tabbed = false;
+    static ULONGLONG x_at = 0;
+    bool tabbed = HasGlyph(0, 2) || HasGlyph(1, 3);
+    if ((GetAsyncKeyState('X') & 0x8000) && was_tabbed) x_at = GetTickCount64();
+    if (was_tabbed && !tabbed && !g_last_glyphs.empty() && GetTickCount64() - x_at < 1500) editing = true;
+    if (tabbed || g_last_glyphs.empty()) editing = false;
+    was_tabbed = tabbed;
+    static bool used = false;
+    if (!down) used = false;
+    if (used) {
+        input::SetMenuClick(false);
+        return;
+    }
+    if (const Glyph* g = on_page ? GlyphAt(px, py) : nullptr) {  // a prompt under the cursor: its button
+        input::SetMenuClick(false);
+        if (click) {
+            PressGlyph(*g);
+            used = true;
+            if (g->col == 1 && g->row == 0) x_at = GetTickCount64();  // the X prompt: Edit
+        }
+        return;
+    }
+    if (editing) {
+        input::SetMenuClick(false);
+        g_target = 0;
+        return;
+    }
     if (on_page && FollowSelectorRow(px, py, moved)) return;
     // the selected items drawn (a list each); the list worked is the one with an item under the cursor, else the one
     // in front
@@ -295,7 +396,8 @@ void FollowCursor() {
     if (selected < 0) {
         g_target = 0;
         g_selected = 0;
-        input::SetMenuClick(true);  // no list known: a click presses A ("press A to go on")
+        // no list known: a click presses A ("press A to go on"), unless the page shows its buttons: they are clicked
+        input::SetMenuClick(g_last_glyphs.empty());
         // the title page (before the menus have said any item is selected): Enter and a click press Start too. Not
         // later: a page whose items send no selection (the mission select) took A and Start as two presses
         input::SetMenuStart(g_item_selected.empty(), false);
@@ -315,7 +417,15 @@ void FollowCursor() {
         input::SetMenuClick(false);
         return;
     }
-    input::SetMenuClick(hovered && hovered->element == g_selected);
+    // a tabbed page (the Personnel Jacket: Q and E shown) with an Edit (X): a click on the selected row edits it, A
+    // there leaves the page
+    bool edits = (HasGlyph(0, 2) || HasGlyph(1, 3)) && HasGlyph(1, 0);
+    input::SetMenuClick(!edits && hovered && hovered->element == g_selected);
+    if (edits && click && hovered && hovered->element == g_selected) {
+        input::PressMenuAnalog(1u << 2, 2 * 34);
+        used = true;
+        x_at = GetTickCount64();  // Edit: see editing above
+    }
     if (hovered && hovered->element != g_unreachable) g_unreachable = 0;  // the cursor went to another item
     if (moved && hovered && hovered->element != g_unreachable) {
         if (hovered->element != g_target) g_step_gap = -1;
@@ -426,6 +536,8 @@ void NewFrame() {
     if (now == g_frame_no) return;
     g_frame_no = now;
     g_last.swap(g_frame);
+    g_last_glyphs.swap(g_glyphs);
+    g_glyphs.clear();
     BoxBelow(g_last);
     g_frame.clear();
     g_stack.clear();

@@ -694,16 +694,42 @@ void ReportScreenBox(uint32_t start, uint32_t count, const uint16_t* indices) {
     if (!s.vb || s.stride < 16) return;
     uint32_t data = mem::VirtualFromPhysical(R32(s.vb + 4));
     if (!data) return;
-    float x0 = 1e30f, y0 = 1e30f, x1 = -1e30f, y1 = -1e30f;
+    d3d::ScreenDraw d{1e30f, 1e30f, -1e30f, -1e30f};
+    // the texture coordinates: an FVF's, past the position (16 bytes) and any diffuse and specular colours
+    uint32_t fvf = gpu::IsShaderHandle(g_state.vs_handle) ? 0 : g_state.vs_handle;
+    uint32_t uv_at = 16 + ((fvf & 0x40) ? 4 : 0) + ((fvf & 0x80) ? 4 : 0);
+    d.uv = fvf && ((fvf >> 8) & 0xF) >= 1 && uv_at + 8 <= s.stride;
+    d.fvf = fvf;
+    d.stride = s.stride;
+    for (uint32_t k = 0; k < 2 && k < count; k++) {
+        uint32_t v = indices ? indices[k] : start + k;
+        const float* p = static_cast<const float*>(HostPtr(data + v * s.stride));
+        for (uint32_t j = 0; j < 12 && j * 4 < s.stride; j++) d.raw[k][j] = p[j];
+    }
+    d.u0 = d.v0 = 1e30f;
+    d.u1 = d.v1 = -1e30f;
     for (uint32_t i = 0; i < count && i < 4096; i++) {
         uint32_t v = indices ? indices[i] : start + i;
         const float* p = static_cast<const float*>(HostPtr(data + v * s.stride));
-        x0 = std::min(x0, p[0]);
-        y0 = std::min(y0, p[1]);
-        x1 = std::max(x1, p[0]);
-        y1 = std::max(y1, p[1]);
+        d.x0 = std::min(d.x0, p[0]);
+        d.y0 = std::min(d.y0, p[1]);
+        d.x1 = std::max(d.x1, p[0]);
+        d.y1 = std::max(d.y1, p[1]);
+        if (d.uv) {
+            const float* t = static_cast<const float*>(HostPtr(data + v * s.stride + uv_at));
+            d.u0 = std::min(d.u0, t[0]);
+            d.v0 = std::min(d.v0, t[1]);
+            d.u1 = std::max(d.u1, t[0]);
+            d.v1 = std::max(d.v1, t[1]);
+        }
     }
-    if (x0 <= x1) g_screen_fn(x0, y0, x1, y1);
+    if (uint32_t tex = g_state.textures[0]) {  // D3DPixelContainer: Format +0xC, its USIZE and VSIZE log2 at bits 20 and 24
+        uint32_t format = R32(tex + 0xC);
+        d.texture = tex;
+        d.tex_width = 1u << ((format >> 20) & 0xF);
+        d.tex_height = 1u << ((format >> 24) & 0xF);
+    }
+    if (d.x0 <= d.x1) g_screen_fn(d);
 }
 
 // at Swap: the traced frame into the log, and the next one traced when asked

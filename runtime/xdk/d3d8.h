@@ -19,7 +19,17 @@ void Occlusion();
 void TraceFrame();  // the next frame's draws and depth clears into the log (F9)
 // a game hook told each screen space draw's box as it is drawn, in pixels of the game's frame (x0, y0, x1, y1); the
 // title's thread
-using ScreenDrawFn = void (*)(float, float, float, float);
+// with stage 0's texture (its guest D3DBaseTexture, 0 none) and size, and the span of texture coordinates used (when the
+// vertex format gives them: an FVF with a TEX1 after the position and colours)
+struct ScreenDraw {
+    float x0, y0, x1, y1;
+    uint32_t texture = 0, tex_width = 0, tex_height = 0;
+    uint32_t fvf = 0, stride = 0;  // the vertex format (0: a vertex shader), stream 0's stride
+    float raw[2][12] = {};  // the first two vertices' first 12 floats (for finding a vertex shader's texture coordinates)
+    bool uv = false;
+    float u0 = 0, v0 = 0, u1 = 0, v1 = 0;
+};
+using ScreenDrawFn = void (*)(const ScreenDraw&);
 void OnScreenDraw(ScreenDrawFn fn);
 
 }  // namespace d3d
