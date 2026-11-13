@@ -6,6 +6,7 @@ static const bool g_aspect_default = (app::Get().aspect = app::kAspect4x3, true)
 
 void PatchUserIni();  // mouse.cpp: the game's mouse acceleration and smoothing off
 bool PatchGameText(const char* path, std::vector<uint8_t>& data);  // text.cpp
+void StancePad(int port, input::Pad& pad);  // stance.cpp
 
 // America's Army: Rise of a Soldier (Xbox, USA). XDK 5849, Unreal Engine 2 based.
 const app::GameInfo app::kGame = {
@@ -28,7 +29,7 @@ const app::GameInfo app::kGame = {
     // White AltFire, LT TweakLock, RT Fire, Start ShowMenu, left thumb Sprint, right thumb Zoom. Mouse look: mouse.cpp
     // the user's own layout (2026-11-12), the defaults. Virtual keys: 0x01 left mouse, 0x02 right, 0x04 middle,
     // 0x0D Enter, 0x08 Backspace, 0x09 Tab, 0x1B Escape, 0x20 Space, 0x25-0x28 arrows (left, up, right, down),
-    // 0xA0 left Shift
+    // 0xA0 left Shift, 0xA4 0xA5 left and right Alt
     .key_actions = {{"Move Forward", input::PadTarget::LeftStick, 0, {'W', 0}},
                     {"Move Back", input::PadTarget::LeftStick, 1, {'S', 0}},
                     {"Move Left", input::PadTarget::LeftStick, 2, {'A', 0}},
@@ -44,6 +45,7 @@ const app::GameInfo app::kGame = {
                     {"Sprint", input::PadTarget::Button, 6, {0xA0, 0}},
                     {"Slow Walk", input::PadTarget::SlowWalk, 50, {0x20, 0}},  // the stick half over (35% is in the dead zone)
                     {"Tweak Lock", input::PadTarget::Analog, 6, {0x02, 0}},
+                    {"Free Look", input::PadTarget::Game, 0, {0xA4, 0xA5}},  // mouse.cpp: Alt, left or right
                     {"D-Pad Up", input::PadTarget::Button, 0, {'C', 0x26}},
                     {"D-Pad Down", input::PadTarget::Button, 1, {'X', 0x28}},
                     {"D-Pad Left", input::PadTarget::Button, 2, {'Q', 0x25}},
@@ -60,6 +62,6 @@ const app::GameInfo app::kGame = {
     .window = nullptr,
     .message = nullptr,
     .ui = nullptr,
-    .pad = nullptr,
+    .pad = StancePad,  // stance.cpp
     .rumble = nullptr,
 };

@@ -29,6 +29,7 @@ enum class PadTarget : uint8_t {
     LeftStick,   // index: 0 up, 1 down, 2 left, 3 right, full over
     RightStick,
     SlowWalk,    // held: the keys move the left stick only partway (index: percent of full)
+    Game,        // nothing on the pad: the game side asks ActionHeld(index)
 };
 // keys are Windows virtual keys; mouse buttons VK_LBUTTON, VK_RBUTTON, VK_MBUTTON, VK_XBUTTON1, VK_XBUTTON2; the
 // wheel kWheelUp and kWheelDown, or kWheel either way, held for a moment a notch; 0 is no key
@@ -75,6 +76,8 @@ void SetMenuStart(bool enter, bool escape);
 bool TakeMenuEscape();
 // which was used last, the controller or the keyboard and mouse: for on-screen button icons
 bool UsingPad();
+// a PadTarget::Game action's key held, in play only (not in a game menu or the overlay)
+bool ActionHeld(uint8_t index);
 void NoteInput(bool pad);  // input.cpp and keyboard.cpp, as either is used
 // the cursor in the window's client area, false while it is outside the window
 bool CursorInWindow(int& x, int& y, int& width, int& height);

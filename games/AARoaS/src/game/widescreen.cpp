@@ -24,6 +24,8 @@ float g_node_fov = 0;      // the world camera node's FOV this frame
 void NoteWorldCamera(uint8_t* base, uint32_t node);  // mouse.cpp
 float ZoomHold(float fov);                             // aim_assist.cpp
 void AimAfterTick(uint8_t* base, uint32_t node);        // mouse.cpp
+void FreeLookCamera(uint8_t* base, uint32_t node, bool world);  // mouse.cpp
+void NoteWorldScale(float scale);                                // mouse.cpp
 
 // Ambient occlusion is armed with the world camera's projection as this frame builds it, and goes in once the world
 // is drawn: before the depth clear that comes ahead of the first person weapon, else (a cutscene: no weapon) as the
@@ -37,6 +39,7 @@ X86_FUNC(sub_001F3E50) {
     if (g_world) AimAfterTick(base, ctx.ecx);     // mouse.cpp: Aim Assist off, the lock's pull taken back out
     if (g_world) NoteWorldCamera(base, ctx.ecx);  // mouse.cpp: the view rotation for direct mouse look
     if (g_world) g_node_fov = X86_MEMF32(ctx.ecx + 0x1EC);  // the node's FOV, for the zoom hold
+    FreeLookCamera(base, ctx.ecx, g_world);  // mouse.cpp: Free Look turns both cameras, the aim stays
     __imp__sub_001F3E50(ctx, base);
     g_world = false;
 }
@@ -56,6 +59,7 @@ X86_FUNC(sub_001F1AC0) {
         X86_MEMF32(matrix) *= r;
         X86_MEMF32(matrix + 0x14) *= r;
         float s = app::FovScale();
+        NoteWorldScale(r / s);  // mouse.cpp: Free Look matches the weapon camera's turn to it
         X86_MEMF32(matrix) /= s;
         X86_MEMF32(matrix + 0x14) /= s;
         if (uint32_t ao = app::Get().ambient_occlusion) {

@@ -230,6 +230,16 @@ float ZoomHold(float fov) {
     return std::tan(fov * kHalfDegree) / std::tan(g_base_fov * kHalfDegree);
 }
 
+// a property of an object's class chain by name (the controller, to learn the layout from): the property object,
+// 0 when none. Its byte offset is PropertyOffset's
+uint32_t FindProperty(uint8_t* base, uint32_t controller, uint32_t object, const char* name) {
+    if (!Readable(controller, 0x200) || !Calibrate(base, controller) || !Readable(object, 0x40)) return 0;
+    for (uint32_t index : NameIndexes(base, name))
+        if (uint32_t f = Field(base, object, index, g_next)) return f;
+    return 0;
+}
+uint32_t PropertyOffset(uint8_t* base, uint32_t property) { return property ? X86_MEM32(property + g_offset_field) : 0; }
+
 // The game paused (the pause menu): LevelInfo.Pauser set, the controller's Level (Actor.Level) its LevelInfo.
 // Looked up once a map (a new controller), by name through the class chain as the lock's variables are.
 bool GamePaused(uint8_t* base, uint32_t viewport) {

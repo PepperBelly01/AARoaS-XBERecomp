@@ -233,7 +233,10 @@ automatically through `../../cmake/XbeRecomp.cmake`; no `sdk\` copy is needed.
   draws them at 4x: the menus' atlas 128x128_cee43c3773341320 (A X B / Start Y / L Black / White R) as Enter X Esc /
   Esc Y / Q Tab / Z E, the HUD's A 32x32_e4dd91ad26fcd422 as F. User confirmed the switch. The tutorial boxes use
   T-UIAAC.utx's buttons_xbox_* (32x32 DXT5, format 15; their A is the HUD's): keys worked out from the package (the
-  level 0 data is the export's last 1034 bytes but 10) and drawn as play's keys and mouse buttons.
+  level 0 data is the export's last 1034 bytes but 10) and play's icons (the HUD's A, the tutorial buttons) are drawn by the game with the player's keys
+  (src\game\key_icons.cpp, GDI+): at the first frame and on a rebind, saved over the @keyboard images, which the pack
+  watcher loads again. The menus' atlas stays make_key_icons.ps1's fixed keys (the user wants menu navigation safe from
+  odd bindings). User confirmed a rebind showing.
 - **Rumble only while the controller is in use**; switching to keyboard or mouse stops its motors (user confirmed).
 - **Text and file patches** (GameInfo::patch_file, kernel/files.cpp): a disc file's stand-in in `overrides\` beside the
   exe is read instead, written from the game's patch the first time the file is opened; the cache drive's (Z:) copy
@@ -338,15 +341,36 @@ automatically through `../../cmake/XbeRecomp.cmake`; no `sdk\` copy is needed.
     aims from the view plus the axes, so it is shown the axes with the sway as 30 FPS has it. Aim Assist off: 0x22520
     is skipped (aim_assist.cpp kSkipLockTurn), so mouse.cpp's undoing after the tick no longer runs (it ate the sway).
 
+- **Stance on the keyboard** (`src\game\stance.cpp`, GameInfo::pad; user confirmed 2026-11-12; the controller is left as
+  the Xbox had it). The game keeps the stance asked for (D-pad up/down: C, X), but a left stick past ~87% is running,
+  which stands the pawn while it lasts (crouch walk 60, running 220); crouch asked for while running is given up. The
+  keys pushed the stick all the way, so a crouch never held. With the keyboard in use: crouched (pawn bIsCrouched
+  dword +0x310, bit 0x40; 0x20 asked, 0x04 slow or still, 0x200 prone) or a crouch just asked for, the stick goes to
+  70%; down twice within 400 ms (or down while crouched) holds movement at nothing until prone (bIsProne dword
+  +0x560 changes, 0x77 prone) or 700 ms, then a full stick crawls; up twice from prone sends the second up 1150 ms
+  after the first (the flags say crouched at once and the animation plays after; the game cut straight to standing;
+  1150 is the user's own timing). FindProperty / PropertyOffset (aim_assist.cpp) look up properties by name.
+
+- **Free Look** (key action "Free Look", PadTarget::Game, Alt left or right; mouse.cpp FreeLookCamera, widescreen.cpp;
+  user confirmed): held, the mouse turns an offset (99 deg across, 60 up/down at most) added to both camera nodes'
+  rotation as UpdateMatrices runs, not the controller's Rotation; let go, it eases back (45 ms time constant). The
+  weapon camera turns so the gun moves on screen as the world does (its lens is 47 deg against the world's 75+: the
+  same angle overshot): atan(tan a x tan(weapon fov/2) / tan(world fov/2) x the world's FovScale and zoom hold), from
+  the nodes' own FOV (+0x1EC) each frame (the last built projections held a menu camera's for a while). It is capped
+  at 35 deg left, 60 right, 20 up/down of weapon turn, then the gun follows (further, the first person arms show
+  their unmodelled backs). The game's own FreeLook button is Unreal's "W and S look up and down", not this (tried:
+  xboxuser.ini's Ctrl is set back to unbound). Runtime: PadTarget::Game, input::ActionHeld(index).
+  - Not done (user, for later): with the gun lowered near a friendly, small turns show the arms. bLowerWeapon,
+    TempLowerWeapon and BusyTempLowering are not properties on the controller, pawn or weapon; lowering looks like a
+    weapon state (BusyTempLowering, FS_BusyLoweringWeapon): read the weapon's state frame to turn the weapon camera
+    off meanwhile. The game's lowering pose might also serve to lower the gun out of view at wide angles.
+- **Cutscenes** (`src\game\cutscene.cpp`; user confirmed): in a mission's scenes the controller has no pawn, or its
+  ViewTarget is not the pawn; the mouse's counts are dropped and Free Look is off meanwhile (also on death and
+  loading). bMatineeIsRunning, bInterpolating, bCinematicView, bHideHUD are not on this game's controller, pawn or
+  level.
+
 ## Future: PC features the user wants (paused 2026-11-10)
-Still to do: key icons for the keyboard in menus and prompts (texture replacement of the A/B/X/Y glyphs; the user
-wants this next),
-a freelook key (the user's idea: the camera pans while the body and weapon keep facing ahead; the after-tick camera
-correction in mouse.cpp shows the camera can be set apart from Rotation, as the view already is behind the pause
-menu), play's key icons (the HUD's A, the tutorial boxes') following the player's bindings (drawn by the game at start
-and on a rebind, in place of make_key_icons.ps1's fixed images; the icon to action mapping is in that script). The
-menus' keys and their atlas stay fixed: the user wants menu navigation safe from odd bindings, a controller combo to open the
-overlay, overlay navigation for non-Xbox pads (ImGui's backend reads XInput pad 0 only).
+Still to do (2026-11-12): the lowered gun under Free Look (see Free Look), a controller combo to open the overlay, overlay navigation for non-Xbox pads (ImGui's backend reads XInput pad 0 only).
 
 Mouse and keyboard, 16:9 widescreen, resolutions up to 4K, FoV, SMAA, ambient occlusion, and a settings overlay.
 - **Our SDK today**: no in-game overlay (`runtime\app` has no menu.cpp), though Dear ImGui is linked and the window

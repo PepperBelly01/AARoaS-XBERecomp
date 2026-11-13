@@ -78,7 +78,9 @@ void PatchUserIni() {
     if (!in) return;  // not copied yet: the first start keeps the game's
     std::string bytes((std::istreambuf_iterator<char>(in)), {});
     in.close();
-    const std::pair<const char*, const char*> kRaw[] = {{"MouseAccelThreshold", "0.000000"}, {"MouseSmoothingMode", "0"}};
+    // Ctrl back to unbound: an experiment once made it the game's FreeLook (W and S look up and down, not a free camera)
+    const std::pair<const char*, const char*> kRaw[] = {
+        {"MouseAccelThreshold", "0.000000"}, {"MouseSmoothingMode", "0"}, {"Ctrl", ""}};
     bool changed = false;
     if (bytes.size() >= 2 && uint8_t(bytes[0]) == 0xFF && uint8_t(bytes[1]) == 0xFE) {
         std::u16string text(bytes.size() / 2, u'\0');
@@ -191,6 +193,10 @@ int AimAssist(uint8_t* base, uint32_t viewport);  // aim_assist.cpp: 0, 1 undo t
 float ShownFov();                                   // aim_assist.cpp
 bool GamePaused(uint8_t* base, uint32_t viewport);  // aim_assist.cpp
 void MenusPaused(bool paused);                      // menus.cpp
+void UpdateKeyIcons();                              // key_icons.cpp
+void StanceFrame(uint8_t* base, uint32_t viewport);  // stance.cpp
+void CutsceneFrame(uint8_t* base, uint32_t viewport);  // cutscene.cpp
+bool InCutscene();                                   // cutscene.cpp
 
 // the world camera's rotation as this frame builds it (widescreen.cpp's UpdateMatrices hook, the frame's first)
 // Aim Assist off, after the tick, as the frame's world camera is set up (widescreen.cpp): the game's lock turned the
@@ -273,6 +279,70 @@ void AimAfterTick(uint8_t* base, uint32_t node) {
     X86_MEM32(node + kNodeRotation + 4) = X86_MEM32(node + kNodeRotation + 4) + fix_yaw;
 }
 
+// --- Free Look (key action "Free Look", Alt): held, the mouse turns the camera alone, the aim (the controller's
+// Rotation), the body and where they walk stay. The game has no such thing (its own FreeLook button makes forward and
+// back look up and down). The offset goes onto both cameras as the frame sets them up (widescreen.cpp): the world's,
+// and partway the weapon's, so the gun drifts off centre as the head turns from it. Let go, it eases back to the aim.
+namespace {
+constexpr float kFreeYaw = 18000, kFreePitch = 11000;  // the most, Rotation units (99 and 60 degrees)
+constexpr float kFreeEase = 0.045f;                     // seconds: the offset's time constant going back
+constexpr float kFreeWeaponLeft = 6400, kFreeWeaponRight = 10900, kFreeWeaponPitch = 3640;  // the weapon camera turns at
+    // most 35 degrees left, 60 right (the gun sits right: looking right it crossed the screen and stayed in view), 20 up
+    // or down, then follows (further, the arms showed their unmodelled backs)
+constexpr float kUnitToRadian = 3.14159265f / 32768.0f;
+float g_world_fov = 0;     // the world camera node's FOV this frame (degrees)
+float g_world_scale = 1;   // what the world's projection gets beyond its FOV: Field of View, the zoom hold (widescreen.cpp)
+constexpr uint32_t kFovAt = 0x1EC;  // FCameraSceneNode FOV, degrees
+float g_free_yaw = 0, g_free_pitch = 0;
+bool g_free_held = false;
+}  // namespace
+
+void FreeLookCamera(uint8_t* base, uint32_t node, bool world) {
+    if (world) g_world_fov = X86_MEMF32(node + kFovAt);
+    if (world && !g_free_held && (g_free_yaw || g_free_pitch)) {
+        static LARGE_INTEGER last{};
+        LARGE_INTEGER now, freq;
+        QueryPerformanceCounter(&now);
+        QueryPerformanceFrequency(&freq);
+        float dt = last.QuadPart ? float(double(now.QuadPart - last.QuadPart) / double(freq.QuadPart)) : 0.0f;
+        last = now;
+        float k = std::exp(-std::min(dt, 0.1f) / kFreeEase);
+        g_free_yaw *= k;
+        g_free_pitch *= k;
+        if (std::abs(g_free_yaw) < 8 && std::abs(g_free_pitch) < 8) {
+            g_free_yaw = g_free_pitch = 0;
+            last.QuadPart = 0;
+        }
+    }
+    if (!g_free_yaw && !g_free_pitch) return;
+    float yaw = g_free_yaw, pitch = g_free_pitch;
+    if (!world) {
+        // the weapon's camera: turned so the gun moves across the screen as far as the world does, its muzzle staying
+        // on what it pointed at. Its lens is narrower (47 degrees, the world's 75 and more), so the same angle moved it
+        // further and it overshot: a point at angle a shows at m tan a (m the projection's scale, 1 / tan of half the FOV
+        // and what the world's gets beyond it), so the weapon turns atan(tan a m_world / m_weapon). Both from the nodes
+        // themselves each frame (the projections the game last built held a menu camera's for a while after a menu)
+        constexpr float kHalfDegree = 3.14159265f / 360.0f;
+        float weapon_fov = X86_MEMF32(node + kFovAt);
+        float ratio = 0;
+        if (g_world_fov > 1 && g_world_fov < 179 && weapon_fov > 1 && weapon_fov < 179)
+            ratio = std::tan(weapon_fov * kHalfDegree) / std::tan(g_world_fov * kHalfDegree) * g_world_scale;
+        auto match = [ratio](float units) {
+            if (ratio <= 0) return units;
+            float a = std::clamp(units * kUnitToRadian, -1.4f, 1.4f);  // 80 degrees: tan stays finite
+            return std::atan(std::tan(a) * ratio) / kUnitToRadian;
+        };
+        yaw = std::clamp(match(yaw), -kFreeWeaponLeft, kFreeWeaponRight);
+        pitch = std::clamp(match(pitch), -kFreeWeaponPitch, kFreeWeaponPitch);
+    }
+    // pitch kept within a little of straight up and down, as the mouse's own turn
+    int32_t p = int16_t(X86_MEM32(node + kNodeRotation)), q = std::clamp(p + int32_t(pitch), -16000, 16000);
+    X86_MEM32(node + kNodeRotation) = X86_MEM32(node + kNodeRotation) + uint32_t(q - p);
+    X86_MEM32(node + kNodeRotation + 4) = X86_MEM32(node + kNodeRotation + 4) + uint32_t(int32_t(yaw));
+}
+
+void NoteWorldScale(float scale) { g_world_scale = scale > 0 ? scale : 1; }
+
 void NoteWorldCamera(uint8_t* base, uint32_t node) {
     g_cam.pitch = int16_t(X86_MEM32(node + kNodeRotation));
     g_cam.yaw = int16_t(X86_MEM32(node + kNodeRotation + 4));
@@ -286,6 +356,7 @@ X86_FUNC(sub_002F4D00) {
     uint32_t viewport = ctx.ecx, skip = X86_MEM32(ctx.esp + 4);
     __imp__sub_002F4D00(ctx, base);
     if (skip) return;
+    UpdateKeyIcons();  // key_icons.cpp: play's button icons drawn with the player's keys
     uint32_t client = X86_MEM32(viewport + kClient);
     uint32_t engine = client ? X86_MEM32(client + kEngine) : 0;
     uint32_t list = client ? X86_MEM32(client + kViewports) : 0;
@@ -293,6 +364,8 @@ X86_FUNC(sub_002F4D00) {
     if (!engine || !player) return;
     // a game menu has the mouse: the front end (no 3D drawn) or the pause menu (the game paused). The cursor is
     // free there, the view does not turn, and the mouse buttons and wheel work the menu (core/keyboard.cpp)
+    StanceFrame(base, player);  // stance.cpp: the pawn for the keyboard's stance
+    CutsceneFrame(base, player);  // cutscene.cpp
     bool paused = GamePaused(base, player);
     input::SetGameMenu(!gpu::screen2d::Frame3D() || paused);
     MenusPaused(paused);  // menus.cpp: Escape closes the pause menu from its first page
@@ -346,8 +419,10 @@ X86_FUNC(sub_002F4D00) {
                       g_cam.yaw, g_cam.fov, g_finds.size());
     }
 
+    g_free_held = view && !InCutscene() && input::ActionHeld(0);  // Free Look (game_info.cpp), above
     float dx, dy;
     if (!input::TakeMouse(dx, dy)) return;
+    if (InCutscene()) return;  // cutscene.cpp: the scene's camera is not the player's to turn (the counts dropped)
     const app::Settings& s = app::Get();
     dx *= s.invert_mouse_x ? -s.mouse_x : s.mouse_x;
     dy *= (s.invert_mouse_y ? s.mouse_y : -s.mouse_y) * app::kGame.mouse_y_ratio;  // screen down, look down
@@ -366,6 +441,11 @@ X86_FUNC(sub_002F4D00) {
         int32_t ix = int32_t(ux), iy = int32_t(uy);
         g_rest_x = ux - float(ix);
         g_rest_y = uy - float(iy);
+        if (g_free_held) {  // the camera alone turns
+            g_free_yaw = std::clamp(g_free_yaw + float(ix), -kFreeYaw, kFreeYaw);
+            g_free_pitch = std::clamp(g_free_pitch + float(iy), -kFreePitch, kFreePitch);
+            return;
+        }
         uint32_t at = view;
         uint32_t pitch = X86_MEM32(at), yaw = X86_MEM32(at + 4);
         // pitch kept within a little of straight up and down; the game's own limits (prone and the like) apply on

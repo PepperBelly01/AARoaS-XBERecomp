@@ -315,6 +315,13 @@ namespace {
 std::atomic<bool> g_using_pad{false};
 }
 bool UsingPad() { return g_using_pad.load(); }
+bool ActionHeld(uint8_t index) {
+    if (!Looks()) return false;
+    std::lock_guard lock(g_lock);
+    for (const KeyBind& b : g_binds)
+        if (b.target == PadTarget::Game && b.index == index && b.key && b.key < kWheelUp && g_held[b.key]) return true;
+    return false;
+}
 bool TakeMenuEscape() { return g_menu_escapes.exchange(0) > 0; }
 void NoteInput(bool pad) {
     if (g_using_pad.exchange(pad) && !pad) StopRumble();  // to the keyboard: the controller's motors stopped
@@ -382,6 +389,7 @@ void MergeKeyboard(int port, Pad& p) {
             case PadTarget::Button: p.buttons |= uint16_t(1u << b.index); break;
             case PadTarget::Analog: if (b.index < 8) p.analog[b.index] = 0xFF; break;
             case PadTarget::SlowWalk: slow = std::clamp(int(b.index), 1, 100); break;
+            case PadTarget::Game: break;  // ActionHeld
             case PadTarget::LeftStick:
             case PadTarget::RightStick: {
                 int& x = b.target == PadTarget::LeftStick ? lx : rx;
