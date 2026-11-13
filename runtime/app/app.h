@@ -51,6 +51,7 @@ struct Settings {
     bool vibration = true;
     bool pad_invert_x = false, pad_invert_y = false;  // the look stick
     uint32_t ao_strength = 50;       // percent of the occlusion's darkening, 25 to 200 (50 looked right in play)
+    uint32_t grass_distance = 100;   // percent of the game's own grass fade distance (GameInfo::grass_distance)
     bool custom_textures = true;     // images in textures\replacement\ beside the exe replace the game's
     bool dump_textures = false;      // each texture once into textures\dumps\ beside the exe
     uint32_t texture_dump_format = 0;  // 0 PNG, 1 DDS
@@ -145,6 +146,7 @@ struct GameInfo {
     float mouse_y_ratio = 1.0f;  // vertical mouse look over horizontal, for the game's own difference between them
     bool aim_assist = false;     // the game's hooks can turn its aim assist off (Settings::aim_assist): the overlay offers it
     bool movement_modes = false;  // the game side honours Settings::sprint_mode and lean_mode: the overlay offers them
+    bool grass_distance = false;  // the game side honours Settings::grass_distance: the overlay offers it
     // a radial menu (the weapon wheel) opened by holding the key that presses this analog button (0 A ... 3 Y), -1
     // none: while it is held the mouse points the left stick instead of looking around
     int radial_menu_analog = -1;

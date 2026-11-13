@@ -54,6 +54,7 @@ const app::GameInfo app::kGame = {
     .mouse_y_ratio = 1.0f,  // with acceleration off (mouse.cpp) the game turns and tilts alike
     .aim_assist = true,     // aim_assist.cpp
     .movement_modes = true,  // stance.cpp: Sprint and Lean, Hold or Toggle
+    .grass_distance = true,  // drawdistance.cpp: Grass Distance
     .radial_menu_analog = 3,  // the weapon wheel: Y held (Switch Weapon), picked with the left stick, the mouse here
     .patch_file = PatchGameText,  // text.cpp: the menus' text names keys, not buttons
     .load = nullptr,

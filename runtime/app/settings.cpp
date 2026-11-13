@@ -93,6 +93,7 @@ void Load() {
     s.msaa = std::min(t["msaa"].value_or(s.msaa), 8u);
     s.ambient_occlusion = std::min(t["ambient_occlusion"].value_or(s.ambient_occlusion), 2u);
     s.ao_strength = std::clamp(t["ao_strength"].value_or(s.ao_strength), 25u, 200u);
+    s.grass_distance = std::clamp(t["grass_distance"].value_or(s.grass_distance), 100u, 400u);
     s.mouse_x = std::clamp(t["mouse_x"].value_or(s.mouse_x), 0.1f, 10.0f);
     s.mouse_y = std::clamp(t["mouse_y"].value_or(s.mouse_y), 0.1f, 10.0f);
     s.invert_mouse_x = t["invert_mouse_x"].value_or(s.invert_mouse_x);
@@ -152,6 +153,7 @@ toml::table Table() {
                   {"msaa", int64_t(s.msaa)},
                   {"ambient_occlusion", int64_t(s.ambient_occlusion)},
                   {"ao_strength", int64_t(s.ao_strength)},
+                  {"grass_distance", int64_t(s.grass_distance)},
                   {"mouse_x", double(s.mouse_x)},
                   {"mouse_y", double(s.mouse_y)},
                   {"invert_mouse_x", s.invert_mouse_x},

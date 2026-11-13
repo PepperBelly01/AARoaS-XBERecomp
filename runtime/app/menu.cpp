@@ -317,6 +317,12 @@ void DrawRecomp() {
                "screens still show.");
 
     Section("Graphics");
+    if (kGame.grass_distance) {
+        std::vector<Choice> distances;
+        for (uint32_t p = 100; p <= 400; p += 50) distances.push_back({p, p == 100 ? "100% (Default)" : std::to_string(p) + "%"});
+        Cycle("Grass Distance", s.grass_distance, distances,
+              "How far grass reaches before it fades out, against the game's own. More costs a few frames on grassy maps.");
+    }
     Cycle("Anisotropic Filtering", s.aniso, {{0, "Default"}, {2, "2x"}, {4, "4x"}, {8, "8x"}, {16, "16x"}},
           "Sharper textures on surfaces seen at an angle, like the ground ahead.");
     Cycle("MSAA", s.msaa, {{0, "Off"}, {2, "2x"}, {4, "4x"}, {8, "8x"}},
@@ -430,6 +436,7 @@ void ResetTab() {
         s.msaa = d.msaa;
         s.ambient_occlusion = d.ambient_occlusion;
         s.ao_strength = d.ao_strength;
+        s.grass_distance = d.grass_distance;
         s.audio_output = d.audio_output;
     } else if (g_tab == 1) {
         s.mouse_x = d.mouse_x;

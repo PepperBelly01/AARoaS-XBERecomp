@@ -240,6 +240,25 @@ uint32_t FindProperty(uint8_t* base, uint32_t controller, uint32_t object, const
 }
 uint32_t PropertyOffset(uint8_t* base, uint32_t property) { return property ? X86_MEM32(property + g_offset_field) : 0; }
 
+// the object's class, or a super of it, is named so (after a FindProperty has learned the layout)
+bool IsA(uint8_t* base, uint32_t object, const char* class_name) {
+    if (!g_next || !Readable(object, 0x40)) return false;
+    const std::vector<uint32_t>& names = NameIndexes(base, class_name);
+    uint32_t cls = X86_MEM32(object + kObjClass);
+    for (int depth = 0; cls && depth < 32 && Readable(cls, 0x40); depth++, cls = X86_MEM32(cls + kSuper))
+        if (std::find(names.begin(), names.end(), X86_MEM32(cls + kObjName)) != names.end()) return true;
+    return false;
+}
+
+// a field of a struct (a UStruct: its fields chained as a class's are), by name; 0 when none
+uint32_t StructField(uint8_t* base, uint32_t strct, const char* name) {
+    if (!g_next || !Readable(strct, 0x40)) return 0;
+    for (uint32_t index : NameIndexes(base, name))
+        for (uint32_t f = X86_MEM32(strct + kChildren), n = 0; f && n < 512 && Readable(f, 0x60); f = X86_MEM32(f + g_next), n++)
+            if (X86_MEM32(f + kObjName) == index) return f;
+    return 0;
+}
+
 // The game paused (the pause menu): LevelInfo.Pauser set, the controller's Level (Actor.Level) its LevelInfo.
 // Looked up once a map (a new controller), by name through the class chain as the lock's variables are.
 bool GamePaused(uint8_t* base, uint32_t viewport) {

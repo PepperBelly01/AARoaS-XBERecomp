@@ -197,6 +197,7 @@ void UpdateKeyIcons();                              // key_icons.cpp
 void StanceFrame(uint8_t* base, uint32_t viewport);  // stance.cpp
 void CutsceneFrame(uint8_t* base, uint32_t viewport);  // cutscene.cpp
 bool InCutscene();                                   // cutscene.cpp
+void DrawDistanceFrame(uint8_t* base, uint32_t viewport);  // drawdistance.cpp
 
 // the world camera's rotation as this frame builds it (widescreen.cpp's UpdateMatrices hook, the frame's first)
 // Aim Assist off, after the tick, as the frame's world camera is set up (widescreen.cpp): the game's lock turned the
@@ -366,6 +367,7 @@ X86_FUNC(sub_002F4D00) {
     // free there, the view does not turn, and the mouse buttons and wheel work the menu (core/keyboard.cpp)
     StanceFrame(base, player);  // stance.cpp: the pawn for the keyboard's stance
     CutsceneFrame(base, player);  // cutscene.cpp
+    DrawDistanceFrame(base, player);  // drawdistance.cpp: Grass Distance
     bool paused = GamePaused(base, player);
     input::SetGameMenu(!gpu::screen2d::Frame3D() || paused);
     MenusPaused(paused);  // menus.cpp: Escape closes the pause menu from its first page

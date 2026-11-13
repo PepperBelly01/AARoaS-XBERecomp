@@ -386,6 +386,16 @@ automatically through `../../cmake/XbeRecomp.cmake`; no `sdk\` copy is needed.
   - Aim (Tweak Lock, left trigger, right mouse; the game aims while held): Toggle holds the trigger for the game,
     off out of play. The game raises no sights while sprinting: aiming ends the sprint as letting go of Hold does.
 
+- **Grass Distance** (`src\game\drawdistance.cpp`, Settings::grass_distance 100-400%, GameInfo::grass_distance; user
+  confirmed live): the map's actors are XLevel +0x30 (data, count, max; the LevelInfo first); each TerrainInfo's
+  DecoLayers (DecorationLayer, 0x64 bytes) fades over FadeoutRadius (+0x2C Min, +0x30 Max; 0 to 5000 on the
+  training map), scaled from the kept originals once a map and on a change (twice a second cost frames). Named for
+  grass alone so other distances can sit beside it. IsA / StructField (aim_assist.cpp) for classes and structs.
+  - Not done: distant soldiers lose part of the torso (the Xbox too: their low detail mesh). Actor.LODBias on the
+    pawns changed nothing; the game picks soldiers' detail its own way: to find.
+  - The rainy obstacle course is CPU bound (resolution, AA, AO change nothing): ~150-180 uncapped, 300+ in places,
+    without this code too (the user compared). The game's grass and particles: for a later performance pass.
+
 ## Future: PC features the user wants (paused 2026-11-10)
 Still to do (2026-11-12): in 16:9 two suns show depending on the view (not in 4:3; the user's screenshots: likely the flare's 2D, see 2D that follows the world; for the visual polish pass), the lowered gun under Free Look (see Free Look), a controller combo to open the overlay, overlay navigation for non-Xbox pads (ImGui's backend reads XInput pad 0 only).
 
