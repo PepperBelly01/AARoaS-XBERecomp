@@ -41,6 +41,11 @@ struct Settings {
     // the picture's speed on screen (the game as it was: on, 100); off, the turn keeps its speed from before the zoom
     bool zoom_sensitivity = false;
     uint32_t zoom_sensitivity_percent = 100;
+    // the keyboard's movement keys (GameInfo::movement_modes): 0 the key held, 1 a press switches it on and off
+    uint32_t slow_walk_mode = 0;
+    uint32_t sprint_mode = 1;  // the game's own: a toggle
+    uint32_t lean_mode = 1;    // a press leans, the same again stands up
+    uint32_t aim_mode = 0;     // the game's own: aims while held
     // per GameInfo::key_actions, its two keys (input::KeyName codes, 0 none); filled with the defaults at load
     std::vector<std::array<uint16_t, 2>> keys;
     bool vibration = true;
@@ -139,6 +144,7 @@ struct GameInfo {
     std::vector<input::KeyAction> key_actions;
     float mouse_y_ratio = 1.0f;  // vertical mouse look over horizontal, for the game's own difference between them
     bool aim_assist = false;     // the game's hooks can turn its aim assist off (Settings::aim_assist): the overlay offers it
+    bool movement_modes = false;  // the game side honours Settings::sprint_mode and lean_mode: the overlay offers them
     // a radial menu (the weapon wheel) opened by holding the key that presses this analog button (0 A ... 3 Y), -1
     // none: while it is held the mouse points the left stick instead of looking around
     int radial_menu_analog = -1;

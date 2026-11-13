@@ -402,6 +402,19 @@ void MergeKeyboard(int port, Pad& p) {
             }
         }
     }
+    // Slow Walk on Toggle (Settings::slow_walk_mode): a press switches it on and off; its percent kept from the bind
+    {
+        static bool was = false, on = false;
+        static int percent = 50;
+        if (slow) percent = slow;
+        if (app::Get().slow_walk_mode == 1) {
+            if (slow && !was) on = !on;
+            was = slow != 0;
+            slow = on ? percent : 0;
+        } else {
+            was = on = false;
+        }
+    }
     auto full = [](int v, int16_t pad) { return v > 0 ? int16_t(32767) : v < 0 ? int16_t(-32768) : pad; };
     // slow: the stick that far over in any direction, a diagonal no further than straight (games read the stick's
     // length, and a dead zone takes a short one)

@@ -383,6 +383,16 @@ void DrawMouseKeyboard() {
         Toggle("Aim Assist", s.aim_assist, kAimAssistHint);
         DrawTargetZoom(s);
     }
+    Section("Movement");
+    const std::vector<Choice> modes = {{0, "Hold"}, {1, "Toggle"}};
+    Cycle("Slow Walk", s.slow_walk_mode, modes, "Hold: slow while the key is held. Toggle: a press slows, another goes back.");
+    if (kGame.movement_modes) {
+        Cycle("Sprint", s.sprint_mode, modes, "Hold: sprint while the key is held. Toggle: a press sprints, another stops.");
+        Cycle("Lean", s.lean_mode, modes,
+              "Hold: lean while the key is held. Toggle: a press leans, the same key again stands up. Moving while leaning "
+              "is always at a slow walk, so it does not end the lean.");
+        Cycle("Aim", s.aim_mode, modes, "Hold: aim while the key is held. Toggle: a press aims, another lowers.");
+    }
     Section("Keyboard");
     for (int i = 0; i < int(kGame.key_actions.size()); i++) KeyRow(i);
 }
@@ -430,6 +440,10 @@ void ResetTab() {
         s.auto_zoom = d.auto_zoom;
         s.zoom_sensitivity = d.zoom_sensitivity;
         s.zoom_sensitivity_percent = d.zoom_sensitivity_percent;
+        s.slow_walk_mode = d.slow_walk_mode;
+        s.sprint_mode = d.sprint_mode;
+        s.lean_mode = d.lean_mode;
+        s.aim_mode = d.aim_mode;
         s.keys = d.keys;
     } else {
         s.vibration = d.vibration;

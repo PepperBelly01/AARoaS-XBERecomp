@@ -101,6 +101,10 @@ void Load() {
     s.auto_zoom = t["auto_zoom"].value_or(s.auto_zoom);
     s.zoom_sensitivity = t["zoom_sensitivity"].value_or(s.zoom_sensitivity);
     s.zoom_sensitivity_percent = std::clamp(t["zoom_sensitivity_percent"].value_or(s.zoom_sensitivity_percent), 10u, 100u);
+    s.slow_walk_mode = std::min(t["slow_walk_mode"].value_or(s.slow_walk_mode), 1u);
+    s.sprint_mode = std::min(t["sprint_mode"].value_or(s.sprint_mode), 1u);
+    s.lean_mode = std::min(t["lean_mode"].value_or(s.lean_mode), 1u);
+    s.aim_mode = std::min(t["aim_mode"].value_or(s.aim_mode), 1u);
     s.vibration = t["vibration"].value_or(s.vibration);
     s.pad_invert_x = t["pad_invert_x"].value_or(s.pad_invert_x);
     s.pad_invert_y = t["pad_invert_y"].value_or(s.pad_invert_y);
@@ -156,6 +160,10 @@ toml::table Table() {
                   {"auto_zoom", s.auto_zoom},
                   {"zoom_sensitivity", s.zoom_sensitivity},
                   {"zoom_sensitivity_percent", int64_t(s.zoom_sensitivity_percent)},
+                  {"slow_walk_mode", int64_t(s.slow_walk_mode)},
+                  {"sprint_mode", int64_t(s.sprint_mode)},
+                  {"lean_mode", int64_t(s.lean_mode)},
+                  {"aim_mode", int64_t(s.aim_mode)},
                   {"vibration", s.vibration},
                   {"pad_invert_x", s.pad_invert_x},
                   {"pad_invert_y", s.pad_invert_y},

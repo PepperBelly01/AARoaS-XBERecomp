@@ -69,6 +69,14 @@ uint32_t ProneWord() {
     return base && g_pawn && g_prone_at ? X86_MEM32(g_pawn + g_prone_at) : 0;
 }
 
+// the keyboard's left stick all the way over, its direction kept
+void Full(input::Pad& pad) {
+    float len = std::sqrt(float(pad.lx) * pad.lx + float(pad.ly) * pad.ly);
+    if (len == 0) return;
+    pad.lx = int16_t(std::clamp(pad.lx * 32767.0f / len, -32767.0f, 32767.0f));
+    pad.ly = int16_t(std::clamp(pad.ly * 32767.0f / len, -32767.0f, 32767.0f));
+}
+
 // the keyboard's left stick no further than reach of its length
 void Limit(input::Pad& pad, float reach) {
     float len = std::sqrt(float(pad.lx) * pad.lx + float(pad.ly) * pad.ly), most = 32767.0f * reach;
@@ -105,6 +113,138 @@ static void Rise(input::Pad& pad, uint16_t pressed, ULONGLONG now) {
     if (now < g_up_until) pad.buttons |= kDpadUp;
 }
 
+// --- Sprint and lean on the keyboard (Settings::sprint_mode, lean_mode; the overlay's Movement). The game's sprint is
+// a toggle (the left stick's click: a press starts it, another stops it) and its lean a press each way (D-pad left and
+// right: a lean, the other way upright, moving ends it). In play on the keyboard the game gets our presses instead of
+// the keys': Sprint on Hold keeps the game's sprint in step with the key (read from the pawn,
+// clicked when they differ); Lean on Toggle sends the other
+// way for the same key again, on Hold as the key comes up; and from a lean asked for and while leaning the stick goes no
+// further than a slow walk, so the lean is taken while walking and walking does not end it.
+namespace {
+constexpr uint16_t kSprintBit = 1u << 6, kLeanLeft = 1u << 2, kLeanRight = 1u << 3;
+constexpr ULONGLONG kClick = 100;     // ms a press we send is held
+constexpr ULONGLONG kSprintRetry = 400;  // ms between sprint clicks at most
+constexpr ULONGLONG kSprintEase = 250;    // ms at a slow walk to end a sprint before stopping for a moment
+constexpr uint32_t kSprintingBits = 0x07;  // in bIsSprinting's word: 0x08 walking, 0x0F sprinting (seen in play; GroundSpeed
+                                           // stays 220, the game multiplies it)
+constexpr ULONGLONG kLeanHold = 500;   // ms the stick stays at a slow walk for a lean asked for, as for a crouch
+ULONGLONG g_lean_until = 0;
+uint16_t g_lean_queued = 0;  // a lean pressed while sprinting: the game spent that press ending the sprint, sent again
+constexpr float kLeanReach = 0.5f;    // of the stick while leaning: the slow walk's
+uint32_t g_ground_at = 0, g_lean_at = 0, g_sprint_at = 0;
+uint16_t g_raw_last = 0, g_send = 0;
+ULONGLONG g_send_until = 0;
+constexpr uint8_t kLeanIsLeft = 0, kLeanIsCenter = 1, kLeanIsRight = 2;  // LeanDirection (seen in play)
+
+float Ground() {
+    uint8_t* base = g_base;
+    return base && g_pawn && g_ground_at ? X86_MEMF32(g_pawn + g_ground_at) : 0;
+}
+uint32_t SprintWord() {
+    uint8_t* base = g_base;
+    return base && g_pawn && g_sprint_at ? X86_MEM32(g_pawn + g_sprint_at) : 0;
+}
+bool Sprinting() {
+    uint8_t* base = g_base;
+    return base && g_pawn && g_sprint_at && (X86_MEM32(g_pawn + g_sprint_at) & kSprintingBits);
+}
+uint8_t LeanState() {
+    uint8_t* base = g_base;
+    return base && g_pawn && g_lean_at ? uint8_t(X86_MEM32(g_pawn + g_lean_at)) : kLeanIsCenter;
+}
+void Send(uint16_t bit, ULONGLONG now) {
+    g_send = bit;
+    g_send_until = now + kClick;
+}
+}  // namespace
+
+static void SprintLean(input::Pad& pad, ULONGLONG now, bool aiming) {
+    const app::Settings& s = app::Get();
+    uint16_t raw = pad.buttons, pressed = raw & ~g_raw_last;
+    g_raw_last = raw;
+    bool sprinting = Sprinting();
+    // sprint pressed while leaning: upright first (the game took no sprint from a lean), then the sprint: Hold's
+    // wanting does it once upright, Toggle's is clicked then
+    static bool sprint_after_lean = false;
+    uint8_t leaning_now = LeanState();
+    if ((pressed & kSprintBit) && leaning_now != kLeanIsCenter) {
+        Send(leaning_now == kLeanIsLeft ? kLeanRight : kLeanLeft, now);
+        g_lean_until = 0;
+        g_lean_queued = 0;
+        sprint_after_lean = s.sprint_mode == 1;
+    }
+    if (sprint_after_lean && leaning_now == kLeanIsCenter && now >= g_send_until + kClick) {
+        Send(kSprintBit, now);
+        sprint_after_lean = false;
+    }
+    // Hold: the game kept in step with the key, wanted while held and moving, not while leaning (a lean ends a
+    // sprint) or aiming. A click starts a sprint (retried no oftener than kSprintRetry). The game ignores clicks while
+    // sprinting (ten in a row did nothing) and ends a sprint as the stick slows: so ended by easing the stick to a slow
+    // walk until it has, then to nothing for a moment if that did not. Aiming (either mode) ends a sprint the same way:
+    // the game raised the sights only once it ended, so they came up as the player stopped
+    bool hold = s.sprint_mode == 0;
+    bool want = hold && (raw & kSprintBit) && (pad.lx || pad.ly) && LeanState() == kLeanIsCenter && !g_lean_queued &&
+                now >= g_lean_until && !aiming;
+    if (hold) {
+        pad.buttons &= ~kSprintBit;
+        static ULONGLONG next = 0;
+        if (want && !sprinting && now >= next && now >= g_send_until) {
+            Send(kSprintBit, now);
+            next = now + kSprintRetry;
+        }
+    }
+    static ULONGLONG stopping = 0;  // when easing the stick to end a sprint began, 0 not
+    if (sprinting && ((hold && !want) || aiming)) {
+        if (!stopping) stopping = now;
+        if (now - stopping < kSprintEase) Limit(pad, kLeanReach);
+        else if (now - stopping < 2 * kSprintEase + 100) pad.lx = pad.ly = 0;  // at most this long: never held still
+    } else {
+        stopping = 0;
+        // sprinting, or about to: the stick all the way, whatever Slow Walk says (half over, the game ended the sprint)
+        if (want || sprinting) Full(pad);
+    }
+    uint8_t lean = LeanState();
+    pad.buttons &= ~(kLeanLeft | kLeanRight);
+    for (uint16_t key : {kLeanLeft, kLeanRight}) {
+        uint16_t other = key == kLeanLeft ? kLeanRight : kLeanLeft;
+        bool that_way = lean == (key == kLeanLeft ? kLeanIsLeft : kLeanIsRight);  // leaning the key's way now
+        if (pressed & key) {
+            bool up = s.lean_mode == 1 && that_way;  // Toggle: again, upright
+            Send(up ? other : key, now);
+            if (!up) g_lean_until = now + kLeanHold;  // walking: slowed so the game takes the lean
+            if (!up && Sprinting()) {  // the game ends the sprint with it: the lean sent again once it has
+                g_lean_queued = key;
+                g_lean_until = now + 2 * kLeanHold;
+            }
+        }
+        // Hold: leaning its way with the key up (let go, or let go before the lean came), upright
+        if (s.lean_mode == 0 && that_way && !(raw & key) && now >= g_send_until + kClick) Send(other, now);
+    }
+    if (g_lean_queued && !Sprinting() && now >= g_send_until + kClick) {
+        if (lean == kLeanIsCenter) Send(g_lean_queued, now);
+        g_lean_queued = 0;
+    }
+    if (now < g_send_until) pad.buttons |= g_send;
+    if (lean != kLeanIsCenter || now < g_lean_until) Limit(pad, kLeanReach);
+}
+
+// Aim on Toggle (Settings::aim_mode): the aim key (Tweak Lock, the left trigger: the game aims while it is held)
+// switches aiming on and off; the trigger is held for the game meanwhile. Out of play (a menu, the overlay), off.
+static bool Aim(input::Pad& pad, bool in_play) {
+    constexpr int kAimAnalog = 6;
+    static bool was = false, on = false;
+    bool held = pad.analog[kAimAnalog] != 0;
+    if (app::Get().aim_mode != 1 || !in_play) {
+        was = held;
+        on = false;
+        return held;
+    }
+    if (held && !was) on = !on;
+    was = held;
+    pad.analog[kAimAnalog] = on ? 0xFF : 0;
+    return on;
+}
+
 // GameInfo::pad: every poll, after the keys are merged in
 void StancePad(int port, input::Pad& pad) {
     if (port != 0) return;
@@ -124,6 +264,8 @@ void StancePad(int port, input::Pad& pad) {
         if (pressed & kDpadUp) g_crouch_until = g_prone_until = 0;
         g_last_buttons = pad.buttons;
         Rise(pad, pressed, now);
+        bool aiming = Aim(pad, input::MouseLooks());
+        if (input::MouseLooks()) SprintLean(pad, now, aiming);  // in play: menus keep the D-pad's own left and right
         // prone: held still until the game has it or a moment passed
         if (now < g_prone_until && ProneWord() != g_prone_seen) {
             LOGR("stance: prone word %08X -> %08X", g_prone_seen, ProneWord());
@@ -153,8 +295,18 @@ void StanceFrame(uint8_t* base, uint32_t viewport) {
         seen_pawn = pawn;
         g_crouched_at = pawn ? PropertyOffset(base, FindProperty(base, controller, pawn, "bIsCrouched")) : 0;
         g_prone_at = pawn ? PropertyOffset(base, FindProperty(base, controller, pawn, "bIsProne")) : 0;
-        if (pawn) LOGR("stance: pawn %08X, bIsCrouched +0x%X, bIsProne +0x%X", pawn, g_crouched_at, g_prone_at);
+        g_ground_at = pawn ? PropertyOffset(base, FindProperty(base, controller, pawn, "GroundSpeed")) : 0;
+        g_lean_at = pawn ? PropertyOffset(base, FindProperty(base, controller, pawn, "LeanDirection")) : 0;
+        g_sprint_at = pawn ? PropertyOffset(base, FindProperty(base, controller, pawn, "bIsSprinting")) : 0;
+        if (pawn)
+            LOGR("stance: pawn %08X, bIsCrouched +0x%X, bIsProne +0x%X, GroundSpeed +0x%X, LeanDirection +0x%X", pawn,
+                 g_crouched_at, g_prone_at, g_ground_at, g_lean_at);
     }
     g_base = base;
     g_pawn = pawn;
+    static uint8_t lean = 0xFF;  // the lean's value logged as it changes (its values seen in play)
+    if (pawn && g_lean_at && LeanState() != lean) {
+        lean = LeanState();
+        LOGR("stance: lean %u, ground speed %.0f", lean, Ground());
+    }
 }

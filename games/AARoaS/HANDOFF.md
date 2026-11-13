@@ -363,14 +363,31 @@ automatically through `../../cmake/XbeRecomp.cmake`; no `sdk\` copy is needed.
   - Not done (user, for later): with the gun lowered near a friendly, small turns show the arms. bLowerWeapon,
     TempLowerWeapon and BusyTempLowering are not properties on the controller, pawn or weapon; lowering looks like a
     weapon state (BusyTempLowering, FS_BusyLoweringWeapon): read the weapon's state frame to turn the weapon camera
-    off meanwhile. The game's lowering pose might also serve to lower the gun out of view at wide angles.
+    off meanwhile. The game's lowering pose might also serve to lower the gun out of view at wide angles. The game also
+    has a second lowered pose with the weapon empty (the user's screenshots): held low across the body, it showed no
+    arms' backs; an idea: put the gun in that pose while Free Look turns.
 - **Cutscenes** (`src\game\cutscene.cpp`; user confirmed): in a mission's scenes the controller has no pawn, or its
   ViewTarget is not the pawn; the mouse's counts are dropped and Free Look is off meanwhile (also on death and
   loading). bMatineeIsRunning, bInterpolating, bCinematicView, bHideHUD are not on this game's controller, pawn or
   level.
 
+- **Movement modes** (overlay Mouse and Keyboard > Movement; Settings slow_walk_mode, sprint_mode, lean_mode,
+  aim_mode, 0 Hold 1 Toggle; GameInfo::movement_modes; stance.cpp; user confirmed 2026-11-13; keyboard only, the
+  controller as the Xbox had it). Slow Walk Toggle is the runtime's (keyboard.cpp). What the game does, measured:
+  - Sprint: the left stick's click starts one; clicks while sprinting are ignored (ten in a row did nothing); a sprint
+    ends as the stick slows or stops. Pawn bIsSprinting word +0x570: 0x08 walking, 0x0F sprinting (GroundSpeed stays
+    220, speed ~330). Hold: a click when held and moving and not sprinting (retried each 400 ms); let go (or aiming),
+    the stick eases to a slow walk for 250 ms, then nothing for a moment (600 ms at most). Sprinting or wanting it,
+    the stick goes all the way (Slow Walk's half ended the sprint). Sprint from a lean: upright first, then the sprint.
+  - Lean (D-pad left/right, Q E): LeanDirection +0x578, 0 left, 1 upright, 2 right; the other way stands up; walking
+    fast ends it. Toggle: the same key again sends the other way; Hold: leaning with the key up sends it. A lean asked
+    for, and while leaning, the stick goes no further than a slow walk (as for a crouch). From a sprint the game spends
+    the lean press ending the sprint: the lean is sent again once it has.
+  - Aim (Tweak Lock, left trigger, right mouse; the game aims while held): Toggle holds the trigger for the game,
+    off out of play. The game raises no sights while sprinting: aiming ends the sprint as letting go of Hold does.
+
 ## Future: PC features the user wants (paused 2026-11-10)
-Still to do (2026-11-12): the lowered gun under Free Look (see Free Look), a controller combo to open the overlay, overlay navigation for non-Xbox pads (ImGui's backend reads XInput pad 0 only).
+Still to do (2026-11-12): in 16:9 two suns show depending on the view (not in 4:3; the user's screenshots: likely the flare's 2D, see 2D that follows the world; for the visual polish pass), the lowered gun under Free Look (see Free Look), a controller combo to open the overlay, overlay navigation for non-Xbox pads (ImGui's backend reads XInput pad 0 only).
 
 Mouse and keyboard, 16:9 widescreen, resolutions up to 4K, FoV, SMAA, ambient occlusion, and a settings overlay.
 - **Our SDK today**: no in-game overlay (`runtime\app` has no menu.cpp), though Dear ImGui is linked and the window
