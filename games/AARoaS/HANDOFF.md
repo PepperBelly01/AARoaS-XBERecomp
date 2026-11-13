@@ -292,7 +292,10 @@ automatically through `../../cmake/XbeRecomp.cmake`; no `sdk\` copy is needed.
   weapon camera (47 deg, second) keeps its angle. Its node class is also the menus' camera, so order tells them apart.
 - **2D that follows the world** (names over heads, the sun's flare; screen2d.cpp Moved): a new draw the size of one of
   last frame's a little way off is the same thing moved, and its run is centred (anchored by thirds it jumped side
-  to side on 16:9; user confirmed fixed).
+  to side on 16:9; user confirmed fixed). But the lens flare is placed through the camera's projection, already widened: narrowed
+  again its core sat apart from the sun (two suns in 16:9). Additive draws that follow the world are kept as placed;
+  name tags (the game's own 4:3 sums, normal blending) are narrowed (user confirmed 2026-11-13). F9's frame trace
+  also logs each 2D draw's placing for three frames ("2d trace:").
 - **HUD on 16:9** (`runtime\gpu\screen2d.cpp`, GameInfo::screen_2d): the HUD is fixed function draws through an
   orthographic projection. Each frame's such draws are cut into runs in draw order (touching pieces: a 3x3 box, then
   its text); a run is narrowed to 4:3 about the side it sits on or the centre (applied to that draw's wvp the next
@@ -391,8 +394,11 @@ automatically through `../../cmake/XbeRecomp.cmake`; no `sdk\` copy is needed.
   DecoLayers (DecorationLayer, 0x64 bytes) fades over FadeoutRadius (+0x2C Min, +0x30 Max; 0 to 5000 on the
   training map), scaled from the kept originals once a map and on a change (twice a second cost frames). Named for
   grass alone so other distances can sit beside it. IsA / StructField (aim_assist.cpp) for classes and structs.
-  - Not done: distant soldiers lose part of the torso (the Xbox too: their low detail mesh). Actor.LODBias on the
-    pawns changed nothing; the game picks soldiers' detail its own way: to find.
+  - Not done (parked 2026-11-13): distant soldiers lose part of the torso (the Xbox too: their low detail mesh). A
+    soldier (AACNPCPawn) is one SkeletalMesh shared by all, plus two CharAttachment static meshes (helmet, weapon?),
+    none culled. No LODBias, CullDistance (actors) or LODStrength, LODLevels, MinLOD, LODDistance (the mesh) exist as
+    properties in this build: the detail level is picked in compiled code. To do: find it (what mesh data a distant
+    soldier's draw reads) and keep level 0 further. aim_assist.cpp has NameText / ClassName (index to text) for probes.
   - The rainy obstacle course is CPU bound (resolution, AA, AO change nothing): ~150-180 uncapped, 300+ in places,
     without this code too (the user compared). The game's grass and particles: for a later performance pass.
 
@@ -407,7 +413,7 @@ automatically through `../../cmake/XbeRecomp.cmake`; no `sdk\` copy is needed.
   not followed: the field's arrows looked like a selector row and stepped through the values.
 
 ## Future: PC features the user wants (paused 2026-11-10)
-Still to do (2026-11-12): in 16:9 two suns show depending on the view (not in 4:3; the user's screenshots: likely the flare's 2D, see 2D that follows the world; for the visual polish pass), the lowered gun under Free Look (see Free Look), a controller combo to open the overlay, overlay navigation for non-Xbox pads (ImGui's backend reads XInput pad 0 only).
+Still to do (2026-11-12): the lowered gun under Free Look (see Free Look), a controller combo to open the overlay, overlay navigation for non-Xbox pads (ImGui's backend reads XInput pad 0 only).
 
 Mouse and keyboard, 16:9 widescreen, resolutions up to 4K, FoV, SMAA, ambient occlusion, and a settings overlay.
 - **Our SDK today**: no in-game overlay (`runtime\app` has no menu.cpp), though Dear ImGui is linked and the window

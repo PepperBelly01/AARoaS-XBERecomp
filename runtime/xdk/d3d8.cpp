@@ -24,6 +24,7 @@
 #include "gpu/simple_dirty.h"
 #include "gpu/texture.h"
 #include "gpu/vertex.h"
+#include "gpu/screen2d.h"
 #include "xdk/d3d8.h"
 #include "xdk/hle.h"
 #include "xdk/layout.h"
@@ -823,7 +824,10 @@ void ArmOcclusion(const float* m, bool gtao) {
     Trace('C');
 }
 
-void TraceFrame() { g_trace_asked = true; }
+void TraceFrame() {
+    g_trace_asked = true;
+    gpu::screen2d::Trace();
+}
 
 void OnScreenDraw(ScreenDrawFn fn) { g_screen_fn = fn; }
 

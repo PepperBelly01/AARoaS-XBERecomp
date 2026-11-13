@@ -10,12 +10,14 @@
 #include <vector>
 
 #include "app/app.h"
+#include "core/log.h"
 
 namespace gpu::screen2d {
 
 namespace {
 
 std::atomic<uint64_t> g_frames{0};   // presents so far
+std::atomic<int> g_trace{0};         // frames left to log the decisions of
 std::atomic<uint64_t> g_last3d{0};   // g_frames + 1 at the last 3D draw, 0 for none
 constexpr uint64_t kHold = 10;       // frames a 3D frame's shape outlasts it: a loading frame does not flicker 4:3
 
@@ -117,7 +119,13 @@ bool Moved(const Box& b) {
 
 // One element of a 3D frame's 2D, its box in clip space (y up), as it comes in the order: where it goes. Both kinds
 // of 2D come through here in draw order, canvas draws and screen space ones (a briefing's text is a draw a letter).
-Canvas Decide(const Box& b, bool hide, bool wide) {
+// additive (blended, the destination added in full): a lens flare's pieces
+bool Additive(const State& s) { return s.simple[kMBlendEnable / 4] && s.simple[kMDestBlend / 4] == 1; }
+
+// additive: the draw is light added (Additive). One that follows the world is placed where the game put it: the flare
+// is placed through the camera's projection, already widened, so narrowing it again set the sun's core apart from the
+// sun (two suns); name tags, placed by the game's own 4:3 sums, are narrowed
+Canvas Decide(const Box& b, bool hide, bool wide, bool additive) {
     bool first = !g_any;
     g_any = true;
     if (b.x1 - b.x0 >= 2 * kFill) {  // across the screen: fades, flashes, overlays still fill it
@@ -148,19 +156,30 @@ Canvas Decide(const Box& b, bool hide, bool wide) {
         g_drawn.push_back(b);
         g_drawn_world.push_back(world);
     }
+    if (g_trace.load() > 0)
+        LOGR("2d trace: %.3f,%.3f-%.3f,%.3f (%.3fx%.3f) %s%s", b.x0, b.y0, b.x1, b.y1, b.x1 - b.x0, b.y1 - b.y0,
+             anchor == Canvas::Left ? "left" : anchor == Canvas::Right ? "right" : "centre",
+             world ? (additive ? " world, additive: kept" : " world") : last != g_last.end() ? " same" : joins ? " joins" : " new");
     g_run = joins ? Join(g_run, b) : b;
     if (!joins) g_run_anchor = anchor;
     g_in_run = true;
+    if (world && additive) return Canvas::Keep;
     return anchor;
 }
 
 }  // namespace
+
+void Trace() { g_trace = 3; }
 
 bool Wanted() { return app::kGame.screen_2d && (app::Widescreen() || app::Get().hide_hud); }
 
 void Note3D() { g_last3d.store(g_frames.load() + 1, std::memory_order_relaxed); }
 
 void EndFrame() {
+    if (g_trace.load() > 0) {
+        LOGR("2d trace: frame end");
+        g_trace.fetch_sub(1);
+    }
     GroupDrawn();
     g_frames.fetch_add(1);
 }
@@ -236,7 +255,7 @@ bool Place(const State& s, Assembled& out, int k) {
         const Box& g = span[Find(group, 0)];
         Box c{(g.x0 - vx) / vw * 2 - 1, 1 - (g.y1 - float(s.viewport.y)) / vh * 2, (g.x1 - vx) / vw * 2 - 1,
               1 - (g.y0 - float(s.viewport.y)) / vh * 2};
-        Canvas d = Decide(c, hide, wide);
+        Canvas d = Decide(c, hide, wide, Additive(s));
         if (d == Canvas::Hide) return false;
         if (d != Canvas::Left && d != Canvas::Centre && d != Canvas::Right) return true;
         float at = d == Canvas::Left ? vx : d == Canvas::Right ? vx + vw : vx + vw / 2;
@@ -337,7 +356,7 @@ Canvas Classify(const State& s, const Assembled& a) {
         b.y1 = std::max(b.y1, cy / cw);
     }
     if (b.x0 > b.x1) return Canvas::Keep;
-    return Decide(b, hide, wide);
+    return Decide(b, hide, wide, Additive(s));
 }
 
 void Narrow(Canvas anchor, float m[16]) {

@@ -27,5 +27,7 @@ enum class Canvas { Not, Keep, Hide, Left, Centre, Right };
 Canvas Classify(const State& s, const Assembled& a);
 // the clip space matrix (row vectors, 16 floats) narrowed toward the canvas anchor
 void Narrow(Canvas anchor, float m[16]);
+// the next few frames' placing decisions into the log (F9's frame trace)
+void Trace();
 
 }  // namespace gpu::screen2d

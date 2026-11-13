@@ -14,6 +14,7 @@
 #include <windows.h>
 
 #include <cstdint>
+#include <string>
 #include <unordered_map>
 
 #include "app/app.h"
@@ -116,3 +117,4 @@ void DrawDistanceFrame(uint8_t* base, uint32_t viewport) {
     applied_level = layers ? level : 0;
     if (!layers) retry = GetTickCount64() + 2000;
 }
+

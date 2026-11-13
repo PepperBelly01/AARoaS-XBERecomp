@@ -250,6 +250,44 @@ bool IsA(uint8_t* base, uint32_t object, const char* class_name) {
     return false;
 }
 
+// a name's text from its index (NameIndexes the other way: an entry's index 12 bytes ahead of its text, flags 0 after
+// it); "" when not found. Slow (all memory), cached: for probes
+std::string NameText(uint8_t* base, uint32_t index) {
+    static std::unordered_map<uint32_t, std::string> cache;
+    auto it = cache.find(index);
+    if (it != cache.end()) return it->second;
+    std::string found;
+    for (uint32_t page = 0x10000; page < 0x80000000u && found.empty(); page += 0x1000) {
+        if (!mem::IsCommitted(page) || !mem::IsCommitted(page + 0x1000)) continue;
+        for (uint32_t i = 16; i + 16 <= 0x1000; i += 4) {
+            uint32_t at = page + i;
+            if (X86_MEM32(at - 12) != index || X86_MEM32(at - 8) != 0) continue;
+            uint32_t size = X86_MEM32(at - 16);
+            if (size < 0x10 || size >= 0x200) continue;
+            std::string s;
+            for (uint32_t k = 0; k < 64; k++) {
+                char c = char(X86_MEM8(at + k));
+                if (!c) break;
+                if (c < 0x20 || c > 0x7E) {
+                    s.clear();
+                    break;
+                }
+                s += c;
+            }
+            if (s.size() >= 2) {
+                found = s;
+                break;
+            }
+        }
+    }
+    return cache[index] = found;
+}
+
+std::string ClassName(uint8_t* base, uint32_t object) {
+    uint32_t cls = Readable(object, 0x40) ? X86_MEM32(object + kObjClass) : 0;
+    return Readable(cls, 0x40) ? NameText(base, X86_MEM32(cls + kObjName)) : "";
+}
+
 // a field of a struct (a UStruct: its fields chained as a class's are), by name; 0 when none
 uint32_t StructField(uint8_t* base, uint32_t strct, const char* name) {
     if (!g_next || !Readable(strct, 0x40)) return 0;
