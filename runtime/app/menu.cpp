@@ -346,10 +346,14 @@ void DrawRecomp() {
                                      {audio::kOutputMono, "Mono"}},
           "Automatic follows the speakers Windows has set up.");
 
-    if (kGame.skip_intros) {
-        Section("General");
+    if (kGame.skip_intros || kGame.persistent_bodies) Section("General");
+    if (kGame.skip_intros)
         Toggle("Skip Intros", s.skip_intros, "The logo and rating movies at start up. Takes effect the next start.");
-    }
+    if (kGame.persistent_bodies)
+        Cycle("Persistent Bodies", s.persistent_bodies,
+              {{0, "Off (Original)"}, {32, "32"}, {64, "64"}, {128, "128"}, {kBodiesAll, "All"}},
+              "How many dead soldiers stay on the map, newest first. Off removes each body when the next soldier dies, "
+              "as the original does.");
 }
 
 // the game's aiming help (GameInfo::aim_assist), in both the Mouse and Keyboard and the Controller tabs
@@ -437,6 +441,7 @@ void ResetTab() {
         s.ambient_occlusion = d.ambient_occlusion;
         s.ao_strength = d.ao_strength;
         s.grass_distance = d.grass_distance;
+        s.persistent_bodies = d.persistent_bodies;
         s.audio_output = d.audio_output;
     } else if (g_tab == 1) {
         s.mouse_x = d.mouse_x;

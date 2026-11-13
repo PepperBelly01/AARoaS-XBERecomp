@@ -429,6 +429,15 @@ automatically through `../../cmake/XbeRecomp.cmake`; no `sdk\` copy is needed.
   once in the profile (reached from the controller: 0xEF670, 0x1AF00, 0x3DB80) and look_spring_default_applied is
   saved, so turning it on sticks (once per install, not per profile; xboxuser.ini's bSnapToLevel is not it).
 
+- **Persistent Bodies** (`src\game\bodies.cpp`, Settings::persistent_bodies, overlay Recomp Settings > General: Off /
+  32 / 64 / 128 / All, default Off; user confirmed 2026-11-13): a dying soldier's AGP_Pawn.DeadCleanup (0xAB480) calls
+  AGP_GameSinglePlayer.AddPendingDestroyPawn (0x2B7410, Level.Game vtable +0x13C; ecx a frame, +4 the game), which
+  trims PendingDestroyAGPPawnsList (+0x60C data, +0x610 count) while the count is over MaxPendingDestroyAGPPawns
+  (+0x618, 0 in play: one body), destroying the oldest (0x169570 at 0x2B74C5), then appends the new one. The hook
+  raises +0x618 to keep - 1 for that call only and puts the game's value back. Found with a probe of the actor list and
+  a ULevel::DestroyActor (0x1AE490) hook logging callers. Idea from the 007FRWL recomp (keeps 32 bodies and items).
+  Not checked: dropped weapons (DeadCleanup also destroys the pawn's +0x4D8 and +0x4D4 actors), many bodies' cost.
+
 ## Future: PC features the user wants (paused 2026-11-10)
 Still to do (2026-11-12): the lowered gun under Free Look (see Free Look), a controller combo to open the overlay, overlay navigation for non-Xbox pads (ImGui's backend reads XInput pad 0 only).
 

@@ -14,6 +14,7 @@ namespace app {
 
 enum class DisplayMode : uint32_t { Fullscreen, Borderless, Windowed };
 inline constexpr uint32_t kFpsCapRefresh = 1;  // fps_cap: the monitor's refresh rate
+inline constexpr uint32_t kBodiesAll = 0xFFFF;  // persistent_bodies: every body stays
 // aspect: auto follows the output's shape; 4:3 shows the frame pillarboxed and the console reports a 4:3 TV
 inline constexpr uint32_t kAspectAuto = 0, kAspect4x3 = 1, kAspect16x9 = 2;
 
@@ -52,6 +53,7 @@ struct Settings {
     bool pad_invert_x = false, pad_invert_y = false;  // the look stick
     uint32_t ao_strength = 50;       // percent of the occlusion's darkening, 25 to 200 (50 looked right in play)
     uint32_t grass_distance = 100;   // percent of the game's own grass fade distance (GameInfo::grass_distance)
+    uint32_t persistent_bodies = 0;  // dead soldiers kept: 0 the game's own, kBodiesAll every one (GameInfo::persistent_bodies)
     bool custom_textures = true;     // images in textures\replacement\ beside the exe replace the game's
     bool dump_textures = false;      // each texture once into textures\dumps\ beside the exe
     uint32_t texture_dump_format = 0;  // 0 PNG, 1 DDS
@@ -147,6 +149,7 @@ struct GameInfo {
     bool aim_assist = false;     // the game's hooks can turn its aim assist off (Settings::aim_assist): the overlay offers it
     bool movement_modes = false;  // the game side honours Settings::sprint_mode and lean_mode: the overlay offers them
     bool grass_distance = false;  // the game side honours Settings::grass_distance: the overlay offers it
+    bool persistent_bodies = false;  // the game side honours Settings::persistent_bodies: the overlay offers it
     // a radial menu (the weapon wheel) opened by holding the key that presses this analog button (0 A ... 3 Y), -1
     // none: while it is held the mouse points the left stick instead of looking around
     int radial_menu_analog = -1;
