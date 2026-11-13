@@ -279,9 +279,8 @@ automatically through `../../cmake/XbeRecomp.cmake`; no `sdk\` copy is needed.
     zoom: felt like sticking). Zoom Sensitivity (on/off, Strength 10-100%, under Target Zoom) slows it by
     (zoomed / before)^strength instead; off by default (the original game is on at 100%). User confirmed.
   - Release builds drop LOGI: diagnostics must use LOGR (one session of data was lost to this).
-  - Known, rare (user, for later): with Aim Assist off, killing a target next to another sometimes snaps to the
-    survivor. Likely the firing window: the lock switches targets within 150 ms of the shot and its pull passes as
-    kick (pitch up, yaw within 300). Idea: drop the lead and keep no kick on a tick where SelectedTarget changed.
+  - The rare snap to a survivor after a kill (Aim Assist off) came from the undoing's firing window; the lock's
+    turn is now skipped at the source (Frame rate, below), so watch whether it is gone.
 - **Widescreen** (`src\game\widescreen.cpp`): FCameraSceneNode::UpdateMatrices 0x1F3E50 builds the projection with
   FPerspectiveMatrix 0x1F1AC0 (call returns to 0x1F42F7); M[0][0] *= 0.75 on 16:9 (Hor+).
 - **Field of View**: the world camera (75 deg, first UpdateMatrices of each Swap) gets M00 and M11 / FovScale; the
@@ -319,15 +318,31 @@ automatically through `../../cmake/XbeRecomp.cmake`; no `sdk\` copy is needed.
   found 50 to 75% right, more too much). User confirmed the smoke and drop out fixes. A particle only counts once
   16+ blended depth writing draws (vegetation) are in: a muzzle flash before the vegetation ran AO early and the
   vegetation flickered with gunfire (user confirmed fixed).
-- **Frame rate**: GameInfo::max_fps = 60. Weapon recoil (and maybe more) is applied per frame: at 200 FPS it threw
-  the view. The user wants uncapped frame rates later: find the recoil code and scale it by frame time.
+- **Frame rate** (`src\game\recoil.cpp`, user confirmed 2026-11-12 at 200 FPS, Aim Assist on and off): the game
+  steps several things once a call with no regard for frame time, tuned for 30 FPS. Each now runs on a fixed 30 Hz
+  clock with a delta time of 1/30 (zero or more steps a frame), eased between steps. GameInfo::max_fps = 0; the
+  Max Frame Rate default is the monitor's refresh rate (runtime Settings::fps_cap = kFpsCapRefresh).
+  - Recoil: the pawn's 0x928F0 (from its tick 0x9DA10) springs rRecoil (pawn +0x8E4, ints) into vRecoil (+0x8F0,
+    pitch yaw floats). The view gets none of it through the game (0x22390 is given zeros); AimAfterTick turns the
+    view to sit kGain 1.2 x vRecoil (measured at 30 FPS) off the aim, past the Aim Assist off logic.
+  - Sway: the pawn's 0x92850 sets vWaver (+0x908) from the weapon's sway, a spring too (6x as fast at 200 FPS). It
+    still goes through the look axes, the way Marksmanship reaches it. The player input 0x33050 resets the axes
+    (controller +0x4F8 pitch, +0x504 turn) each frame and takes back last frame's add (+0x9FC, +0xA00); 0x22390 adds
+    this frame's, so the view turns by the change times delta time. We give it the change scaled by 1/30 over the
+    input's delta time. Scaling the whole value put the scale's jitter into the change (shook); turning the view by
+    the sway directly fed back into it (shook).
+  - Aim lock (Aim Assist on): AACPlayerInput's 0x32DB0 picks a target (0x32CA0) and pulls the axes (0x22520, its
+    only caller, writes only the axes). Stepped at 30 Hz, its pull given again each frame until the next step. It
+    aims from the view plus the axes, so it is shown the axes with the sway as 30 FPS has it. Aim Assist off: 0x22520
+    is skipped (aim_assist.cpp kSkipLockTurn), so mouse.cpp's undoing after the tick no longer runs (it ate the sway).
 
 ## Future: PC features the user wants (paused 2026-11-10)
 Still to do: key icons for the keyboard in menus and prompts (texture replacement of the A/B/X/Y glyphs; the user
 wants this next),
 a freelook key (the user's idea: the camera pans while the body and weapon keep facing ahead; the after-tick camera
 correction in mouse.cpp shows the camera can be set apart from Rotation, as the view already is behind the pause
-menu), frame rate independent recoil and timing (then lift max_fps), a controller combo to open the
+menu), the tutorial text boxes' inline button icons (still the console's X etc.: likely a font glyph or its own
+texture, not the menus' icons), a controller combo to open the
 overlay, overlay navigation for non-Xbox pads (ImGui's backend reads XInput pad 0 only).
 
 Mouse and keyboard, 16:9 widescreen, resolutions up to 4K, FoV, SMAA, ambient occlusion, and a settings overlay.

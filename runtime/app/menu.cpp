@@ -305,7 +305,7 @@ void DrawRecomp() {
 
     Toggle("Vertical Sync", s.vsync, "Waits for the monitor's refresh: no tearing, a little more latency.");
     std::vector<Choice> caps = {{kFpsCapRefresh, "Refresh Rate"}};
-    for (uint32_t f : {30u, 60u, 120u, 144u, 165u, 240u})
+    for (uint32_t f : {30u, 60u, 75u, 90u, 120u, 144u, 165u, 240u})
         if (!kGame.max_fps || f <= kGame.max_fps) caps.push_back({f, std::to_string(f)});
     if (!kGame.max_fps) caps.push_back({0, "Unlimited"});
     Cycle("Max Frame Rate", s.fps_cap, caps,

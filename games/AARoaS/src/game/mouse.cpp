@@ -2,6 +2,14 @@
 // MouseX=Axis aMouseX and MouseY=Axis aMouseY, and bAlwaysMouseLook is on. After the viewport's controller update
 // (UXboxViewport::UpdateInput, 0x2F4D00) the mouse's raw counts go to UEngine::InputEvent as IK_MouseX and IK_MouseY
 // axis events, as the PC viewport sends them. Keys and mouse buttons press the controller (GameInfo::key_actions).
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -191,9 +199,42 @@ void MenusPaused(bool paused);                      // menus.cpp
 // and while firing the kick up and its small sideways jolt beyond the pull that was led for (the settling back down
 // is the player's to do). Not firing, the tick started from the true aim, so the game picks its target fairly and
 // nothing flips back and forth between two targets.
+// this frame's time as a share of a 30 fps tick (1 at 30 fps, 0.15 at 200), smoothed
+float TickShare() {
+    static LARGE_INTEGER last{};
+    static float share = 1;
+    LARGE_INTEGER now, freq;
+    QueryPerformanceCounter(&now);
+    QueryPerformanceFrequency(&freq);
+    if (last.QuadPart) {
+        float s = float(double(now.QuadPart - last.QuadPart) / double(freq.QuadPart) * 30.0);
+        if (s > 0 && s < 8) share += (std::min(s, 1.0f) - share) * 0.1f;
+    }
+    last = now;
+    return share;
+}
+
+bool RecoilTurn(uint8_t* base, uint32_t controller, int32_t& pitch, int32_t& yaw);  // recoil.cpp
+bool RecoilOurs();                                                                  // recoil.cpp
+
 void AimAfterTick(uint8_t* base, uint32_t node) {
+    float share = TickShare();  // every frame, to keep it current
     uint32_t view = g_pre_at;
-    if (!g_mode || !view || view != g_aim_at || !Readable(view, 8)) return;
+    // the weapon's recoil and sway (recoil.cpp), turned here past the undoing of the lock below
+    int32_t recoil_pitch = 0, recoil_yaw = 0;
+    if (view && g_use.offset == 0x124 && Readable(view, 8))
+        RecoilTurn(base, view - 0x124, recoil_pitch, recoil_yaw);
+    auto turn = [&](int32_t p, int32_t y) {
+        if (!p && !y) return;
+        X86_MEM32(view) = X86_MEM32(view) + uint32_t(p);
+        X86_MEM32(view + 4) = X86_MEM32(view + 4) + uint32_t(y);
+        X86_MEM32(node + kNodeRotation) = X86_MEM32(node + kNodeRotation) + uint32_t(p);
+        X86_MEM32(node + kNodeRotation + 4) = X86_MEM32(node + kNodeRotation + 4) + uint32_t(y);
+    };
+    if (!g_mode || !view || view != g_aim_at || !Readable(view, 8)) {
+        if (view && Readable(view, 8)) turn(recoil_pitch, recoil_yaw);
+        return;
+    }
     int32_t pre_pitch = int16_t(g_pre_pitch), post_pitch = int16_t(X86_MEM32(view));
     int32_t d_pitch = post_pitch - pre_pitch, d_yaw = int32_t(X86_MEM32(view + 4) - g_pre_yaw);
     bool jump = std::abs(d_pitch) > kScriptedTurn || std::abs(d_yaw) > kScriptedTurn;
@@ -201,24 +242,29 @@ void AimAfterTick(uint8_t* base, uint32_t node) {
         g_aim_pitch = X86_MEM32(view);
         g_aim_yaw = X86_MEM32(view + 4);
         g_lead_pitch = g_lead_yaw = 0;
+        turn(recoil_pitch, recoil_yaw);
         return;
     }
     int32_t keep_pitch = 0, keep_yaw = 0;
     bool limit = d_yaw == 0 && d_pitch != 0 && std::abs(post_pitch) < std::abs(pre_pitch);
-    if (g_mode == 2) {
+    if (g_mode == 2 && RecoilOurs()) {
+        // the kick is not in the tick (recoil.cpp turns it below): only the pitch limits are kept
+        keep_pitch = limit ? d_pitch : 0;
+    } else if (g_mode == 2) {
         // what came beyond the pull led for is the weapon's: kept. The lead is not learned from these ticks (the
         // recoil in them fed back into it, and the aim wandered); it stays what the last ticks without firing showed
         int32_t beyond_pitch = d_pitch - g_lead_pitch, beyond_yaw = d_yaw - g_lead_yaw;
         keep_pitch = beyond_pitch > 0 || limit ? beyond_pitch : 0;
-        keep_yaw = std::abs(beyond_yaw) <= kRecoilYaw ? beyond_yaw : 0;
+        // the kick's share of a tick shrinks with the tick (recoil.cpp: it turns as far a second as at 30 fps)
+        keep_yaw = std::abs(beyond_yaw) <= int32_t(kRecoilYaw * share) ? beyond_yaw : 0;
     } else {
         // not firing: everything but the pitch limits is the lock's; this tick's pull is the lead for a shot next
         keep_pitch = limit ? d_pitch : 0;
         g_lead_pitch = std::clamp(d_pitch - keep_pitch, -kMaxLead, kMaxLead);
         g_lead_yaw = std::clamp(d_yaw, -kMaxLead, kMaxLead);
     }
-    g_aim_pitch += uint32_t(keep_pitch);
-    g_aim_yaw += uint32_t(keep_yaw);
+    g_aim_pitch += uint32_t(keep_pitch + recoil_pitch);
+    g_aim_yaw += uint32_t(keep_yaw + recoil_yaw);
     // the correction, to the controller and to the camera built from it
     uint32_t fix_pitch = g_aim_pitch - X86_MEM32(view), fix_yaw = g_aim_yaw - X86_MEM32(view + 4);
     X86_MEM32(view) = g_aim_pitch;

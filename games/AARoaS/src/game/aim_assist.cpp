@@ -43,6 +43,7 @@ namespace {
 constexpr uint32_t kObjName = 0x20, kObjClass = 0x24, kSuper = 0x2C, kChildren = 0x38;
 constexpr uint32_t kNextCandidates[] = {0x30, 0x28, 0x2C};  // UField::Next: the first that walks
 constexpr uint32_t kRotationOffset = 0x124;
+constexpr bool kSkipLockTurn = true;  // Aim Assist off: the lock's turn not made (false: undone after the tick, mouse.cpp)
 
 bool Readable(uint32_t a, uint32_t n) { return a >= 0x10000 && mem::IsCommitted(a) && mem::IsCommitted(a + n - 1); }
 
@@ -292,5 +293,23 @@ int AimAssist(uint8_t* base, uint32_t viewport) {
     g_target = target;
     g_recent = last_target && now - last_target < 1000;
     if (s.aim_assist || !g_recent || StickLooks()) return 0;  // the target is still watched for Auto Zoom
+    // the lock's turn is skipped where it is made (0x22520 below): nothing to undo after the tick. Undoing it there
+    // also undid the sway and the like, which reach the view in the same tick
+    if (kSkipLockTurn) return 0;
     return Firing() ? 2 : 1;
+}
+
+// The lock's turn toward its target (thiscall: a rotation, delta time; ret 0x10), called only by AACPlayerInput's
+// lock (0x32DB0) after it picks the target (0x32CA0, kept: Auto Zoom and the red dot go by it). Aim Assist off: not
+// made at all
+X86_EXTERN_FUNC(__imp__sub_00022520);
+X86_FUNC(sub_00022520) {
+    if (kSkipLockTurn && !app::Get().aim_assist) {
+        static bool told = false;
+        if (!told) LOGR("aim assist: off, the lock's turn skipped");
+        told = true;
+        ctx.esp += 4 + 0x10;
+        return;
+    }
+    __imp__sub_00022520(ctx, base);
 }

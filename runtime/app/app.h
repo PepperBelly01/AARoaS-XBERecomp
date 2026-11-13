@@ -23,7 +23,7 @@ struct Settings {
     uint32_t render_percent = 100;   // of the output height
     uint32_t aspect = 0;             // kAspectAuto, kAspect4x3 or kAspect16x9
     uint32_t fov = 0;                // horizontal degrees on a 4:3 frame, 0 the game's own (GameInfo::fov)
-    uint32_t fps_cap = 60;           // 0 unlimited, kFpsCapRefresh the monitor's refresh rate
+    uint32_t fps_cap = kFpsCapRefresh;  // 0 unlimited, kFpsCapRefresh the monitor's refresh rate (the default)
     bool vsync = true;
     bool fps_counter = false;        // frames a second, top left
     bool hide_hud = false;           // the 2D over the 3D view is not drawn (GameInfo::screen_2d)

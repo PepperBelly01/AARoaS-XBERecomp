@@ -22,7 +22,7 @@ const app::GameInfo app::kGame = {
     .fov = 75,  // the player camera's angle (widescreen.cpp)
     .screen_2d = true,
     .skip_intros = true,  // intro.cpp
-    .max_fps = 60,        // weapon recoil is added each frame: above 60 FPS it throws the view
+    .max_fps = 0,  // any: the recoil, sway and aim lock step at the game's 30 Hz (recoil.cpp)
     .ambient_occlusion = true,  // widescreen.cpp
     // the controller as xboxuser.ini binds it: A Action, B _Command, X Reload, Y _Weapon, Black _DisplayMap,
     // White AltFire, LT TweakLock, RT Fire, Start ShowMenu, left thumb Sprint, right thumb Zoom. Mouse look: mouse.cpp
