@@ -310,3 +310,4 @@ void StanceFrame(uint8_t* base, uint32_t viewport) {
         LOGR("stance: lean %u, ground speed %.0f", lean, Ground());
     }
 }
+

@@ -3,9 +3,23 @@
 // the controller's Rotation in them, and the scene's camera with it; Free Look turned it too. Both are off meanwhile
 // (mouse.cpp asks InCutscene). The engine's other cutscene flags (bMatineeIsRunning, bInterpolating, bCinematicView,
 // bHideHUD) are not on this game's controller, pawn or level.
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+
 #include <cstdint>
+#include <cstdio>
+#include <string>
+#include <algorithm>
+#include <unordered_map>
+#include <vector>
 
 #include "core/log.h"
+#include "kernel/memory.h"
 #include "xdk/hle.h"
 
 uint32_t FindProperty(uint8_t* base, uint32_t controller, uint32_t object, const char* name);  // aim_assist.cpp
@@ -33,3 +47,4 @@ void CutsceneFrame(uint8_t* base, uint32_t viewport) {
     if (now != g_cutscene) LOGR("cutscene: %s", now ? "the camera follows another, the mouse does not look" : "over");
     g_cutscene = now;
 }
+

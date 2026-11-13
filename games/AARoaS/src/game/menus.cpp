@@ -396,8 +396,10 @@ void FollowCursor() {
     if (selected < 0) {
         g_target = 0;
         g_selected = 0;
-        // no list known: a click presses A ("press A to go on"), unless the page shows its buttons: they are clicked
-        input::SetMenuClick(g_last_glyphs.empty());
+        // no list known: a click presses A ("press A to go on", or the main menu before its selection is told: its
+        // first item), except on a tabbed page (Q and E shown: the Personnel Jacket, where A leaves): its prompts are
+        // clicked instead
+        input::SetMenuClick(!(HasGlyph(0, 2) || HasGlyph(1, 3)));
         // the title page (before the menus have said any item is selected): Enter and a click press Start too. Not
         // later: a page whose items send no selection (the mission select) took A and Start as two presses
         input::SetMenuStart(g_item_selected.empty(), false);

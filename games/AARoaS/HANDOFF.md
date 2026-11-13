@@ -369,6 +369,14 @@ automatically through `../../cmake/XbeRecomp.cmake`; no `sdk\` copy is needed.
     off meanwhile. The game's lowering pose might also serve to lower the gun out of view at wide angles. The game also
     has a second lowered pose with the weapon empty (the user's screenshots): held low across the body, it showed no
     arms' backs; an idea: put the gun in that pose while Free Look turns.
+    Parked 2026-11-13 after a hunt: the pawn's weapon readiness byte (+0x601; 1 empty and low, 2 up, 3 up aiming
+    or firing, 4 a moment while loading, 6 lowered near a friendly; +0x602 the other end of a change) is a state
+    machine's value (transitions in tables, e.g. 0x88410, reached through function pointers, no direct callers). It
+    picks the third person movement sets (0x29BC50 and its neighbours: "LgFr" names at 2 and 3, "No" otherwise;
+    name constants at 0x759000), but setting it to 1 changed nothing seen: the first person pose comes with the
+    transition's animation. Next: a hardware watchpoint on +0x601 to catch what writes 6 near a friendly, and call
+    that. Weapon and pawn states (StateFrame +0xC) did not differ between the poses; the animation natives are not
+    in the function table (scripts compiled native). aim_assist.cpp's AllNames reads the whole name table at once.
 - **Cutscenes** (`src\game\cutscene.cpp`; user confirmed): in a mission's scenes the controller has no pawn, or its
   ViewTarget is not the pawn; the mouse's counts are dropped and Free Look is off meanwhile (also on death and
   loading). bMatineeIsRunning, bInterpolating, bCinematicView, bHideHUD are not on this game's controller, pawn or
@@ -407,7 +415,8 @@ automatically through `../../cmake/XbeRecomp.cmake`; no `sdk\` copy is needed.
   menus draw through a vertex shader, 48 byte vertices, texture coordinates at +32: the button sheet's draws (128x128,
   quarter cells) are the prompts, its cell the button (A X B / Start Y / left trigger Black / White right trigger);
   ones drawn off the page (hidden tabs) left out. A click on a prompt or its label presses it (input::PressMenuAnalog,
-  new, for the face buttons and triggers); a page showing prompts takes no click elsewhere as A. On a tabbed page with
+  new, for the face buttons and triggers); a tabbed page (Q and E shown) takes no click elsewhere as A (any page
+  with prompts did, and the main menu, its selection not yet told, took no first click). On a tabbed page with
   an X (the Personnel Jacket) a click on the selected row presses X, Edit. A click used so is not A again until the
   button is up (the opened page took it as A and closed). Editing there (X, then the tabs' Q and E gone) the cursor is
   not followed: the field's arrows looked like a selector row and stepped through the values.

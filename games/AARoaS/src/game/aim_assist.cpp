@@ -250,6 +250,36 @@ bool IsA(uint8_t* base, uint32_t object, const char* class_name) {
     return false;
 }
 
+// every name entry found in memory, by index (one pass over memory, then kept): for probes reading many names
+const std::unordered_map<uint32_t, std::string>& AllNames(uint8_t* base) {
+    static std::unordered_map<uint32_t, std::string> names;
+    static bool built = false;
+    if (built) return names;
+    built = true;
+    for (uint32_t page = 0x10000; page < 0x80000000u; page += 0x1000) {
+        if (!mem::IsCommitted(page) || !mem::IsCommitted(page + 0x1000)) continue;
+        for (uint32_t i = 16; i + 16 <= 0x1000; i += 4) {
+            uint32_t at = page + i, index = X86_MEM32(at - 12), size = X86_MEM32(at - 16);
+            if (!index || index >= 0x40000 || X86_MEM32(at - 8) != 0 || size < 0x10 || size >= 0x200) continue;
+            char c0 = char(X86_MEM8(at));
+            if (!((c0 >= 'A' && c0 <= 'Z') || (c0 >= 'a' && c0 <= 'z') || c0 == '_')) continue;
+            std::string s;
+            for (uint32_t k = 0; k < 64; k++) {
+                char c = char(X86_MEM8(at + k));
+                if (!c) break;
+                if (c < 0x20 || c > 0x7E) {
+                    s.clear();
+                    break;
+                }
+                s += c;
+            }
+            if (s.size() >= 2 && !names.count(index)) names[index] = s;
+        }
+    }
+    LOGR("names: %zu found", names.size());
+    return names;
+}
+
 // a name's text from its index (NameIndexes the other way: an entry's index 12 bytes ahead of its text, flags 0 after
 // it); "" when not found. Slow (all memory), cached: for probes
 std::string NameText(uint8_t* base, uint32_t index) {
