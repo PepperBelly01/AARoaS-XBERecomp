@@ -304,6 +304,11 @@ void DrawRecomp() {
     }
 
     Toggle("Vertical Sync", s.vsync, "Waits for the monitor's refresh: no tearing, a little more latency.");
+    Toggle("HDR Output", s.hdr_output,
+           HdrDisplay() ? "HDR10: highlights such as the sun, fire and flashes reach your display's peak brightness; the "
+                          "rest stays at Windows' SDR content brightness."
+                        : "Needs Windows HDR turned on for this display (Settings > System > Display). Off there, the "
+                          "game shows in SDR either way.");
     std::vector<Choice> caps = {{kFpsCapRefresh, "Refresh Rate"}};
     for (uint32_t f : {30u, 60u, 75u, 90u, 120u, 144u, 165u, 240u})
         if (!kGame.max_fps || f <= kGame.max_fps) caps.push_back({f, std::to_string(f)});
@@ -434,6 +439,7 @@ void ResetTab() {
         s.fov = d.fov;
         s.fps_cap = d.fps_cap;
         s.vsync = d.vsync;
+        s.hdr_output = d.hdr_output;
         s.fps_counter = d.fps_counter;
         s.hide_hud = d.hide_hud;
         s.skip_intros = d.skip_intros;

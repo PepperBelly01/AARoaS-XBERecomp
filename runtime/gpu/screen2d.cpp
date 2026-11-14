@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <bit>
 #include <cmath>
 #include <cstring>
@@ -20,6 +21,18 @@ std::atomic<uint64_t> g_frames{0};   // presents so far
 std::atomic<int> g_trace{0};         // frames left to log the decisions of
 std::atomic<uint64_t> g_last3d{0};   // g_frames + 1 at the last 3D draw, 0 for none
 constexpr uint64_t kHold = 10;       // frames a 3D frame's shape outlasts it: a loading frame does not flicker 4:3
+// ... and no longer than this: a checkpoint's loading screen presents slowly, and ten of its frames held it 16:9 for
+// about a second (user, 2026-11-13)
+constexpr uint64_t kHoldMs = 250;
+std::atomic<uint64_t> g_last3d_ms{0};  // SteadyMs at the last 3D draw
+// a frame with no 3D yet that drew a 2D layer over the whole screen (a loading screen's): g_frames + 1 of it. Such a
+// frame is 2D at once, the hold aside: a checkpoint's first loading frame came within it and stayed up stretched
+// 16:9 for the second the load took (user, 2026-11-13)
+std::atomic<uint64_t> g_full2d{0};
+uint64_t SteadyMs() {
+    using namespace std::chrono;
+    return uint64_t(duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count());
+}
 
 constexpr float kNarrow = 0.75f;     // a 4:3 shape's width on a 16:9 frame
 constexpr float kFill = 0.85f;       // a draw this share of the width across still fills it
@@ -140,6 +153,8 @@ Canvas Decide(const Box& b, bool hide, bool wide, bool additive) {
     bool first = !g_any;
     g_any = true;
     bool across = b.x1 - b.x0 >= 2 * kFill;
+    uint64_t frame = g_frames.load() + 1;
+    if (across && b.y1 - b.y0 >= 2 * kFill && g_last3d.load() != frame) g_full2d.store(frame);
     if (first && !across && g_menu_last) g_menu = g_menu_held = true;  // last frame's menu, until shown otherwise
     if (across) {  // across the screen: fades, flashes, overlays still fill it
         // a band (across, not down the whole screen) later in the frame starts a menu too: the death screen's subtitle
@@ -206,7 +221,10 @@ void Trace() { g_trace = 3; }
 
 bool Wanted() { return app::kGame.screen_2d && (app::Widescreen() || app::Get().hide_hud); }
 
-void Note3D() { g_last3d.store(g_frames.load() + 1, std::memory_order_relaxed); }
+void Note3D() {
+    g_last3d.store(g_frames.load() + 1, std::memory_order_relaxed);
+    g_last3d_ms.store(SteadyMs(), std::memory_order_relaxed);
+}
 
 void EndFrame() {
     if (g_trace.load() > 0) {
@@ -219,7 +237,8 @@ void EndFrame() {
 
 bool Frame3D() {
     uint64_t last = g_last3d.load(), now = g_frames.load() + 1;
-    return last && now - last <= kHold;
+    if (g_full2d.load() == now && last != now) return false;  // a full screen 2D layer and no 3D: a 2D screen
+    return last && now - last <= kHold && SteadyMs() - g_last3d_ms.load() <= kHoldMs;
 }
 
 bool Place(const State& s, Assembled& out, int k) {

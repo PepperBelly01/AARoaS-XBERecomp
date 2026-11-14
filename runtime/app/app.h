@@ -26,6 +26,7 @@ struct Settings {
     uint32_t fov = 0;                // horizontal degrees on a 4:3 frame, 0 the game's own (GameInfo::fov)
     uint32_t fps_cap = kFpsCapRefresh;  // 0 unlimited, kFpsCapRefresh the monitor's refresh rate (the default)
     bool vsync = true;
+    bool hdr_output = true;          // HDR10 on a display with Windows HDR on (gpu/d3d12.cpp); SDR elsewhere
     bool fps_counter = false;        // frames a second, top left
     bool hide_hud = false;           // the 2D over the 3D view is not drawn (GameInfo::screen_2d)
     bool skip_intros = false;        // the boot movies, for a game whose hooks honour it (GameInfo::skip_intros)
@@ -98,6 +99,10 @@ bool PrepareGameCode(const GameFiles& game);
 int Instance();  // --instance N on the command line, 0 without: a second copy on this PC for system link tests
 void* Window();  // HWND
 void WaitWhileUnfocused();  // focus_pause.cpp: the game thread, at its Swap
+// the window's display has Windows HDR on (told by the renderer each time it looks): the overlay says when HDR Output
+// cannot apply
+void SetHdrDisplay(bool on);
+bool HdrDisplay();
 // boot splash: GameInfo::splash .bmp or .png beside the exe, up before the game window
 bool OpenSplash();        // window thread, at launch; false without one, and the game window opens at once
 void SplashFirstFrame();  // the game's first Swap: waits out the splash's minimum, then opens the game window

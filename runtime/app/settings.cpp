@@ -8,6 +8,7 @@
 #include <windows.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cctype>
 #include <cmath>
 #include <fstream>
@@ -85,6 +86,7 @@ void Load() {
     s.fov = std::min(t["fov"].value_or(s.fov), 150u);
     s.fps_cap = t["fps_cap"].value_or(s.fps_cap);
     s.vsync = t["vsync"].value_or(s.vsync);
+    s.hdr_output = t["hdr_output"].value_or(s.hdr_output);
     s.fps_counter = t["fps_counter"].value_or(s.fps_counter);
     s.hide_hud = t["hide_hud"].value_or(s.hide_hud);
     s.skip_intros = t["skip_intros"].value_or(s.skip_intros);
@@ -148,6 +150,7 @@ toml::table Table() {
                   {"fov", int64_t(s.fov)},
                   {"fps_cap", int64_t(s.fps_cap)},
                   {"vsync", s.vsync},
+                  {"hdr_output", s.hdr_output},
                   {"fps_counter", s.fps_counter},
                   {"hide_hud", s.hide_hud},
                   {"skip_intros", s.skip_intros},
@@ -273,5 +276,12 @@ float RenderScale(uint32_t guest_height) {
     float h = CachedOutput().height * (Get().render_percent / 100.0f);
     return guest_height ? std::max(h / guest_height, 0.1f) : 1.0f;
 }
+
+
+namespace {
+std::atomic<bool> g_hdr_display{false};
+}  // namespace
+void SetHdrDisplay(bool on) { g_hdr_display = on; }
+bool HdrDisplay() { return g_hdr_display; }
 
 }  // namespace app

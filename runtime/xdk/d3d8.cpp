@@ -708,8 +708,12 @@ void ReleaseParticles() {
 // a particle draw to hold until the occlusion: smoke or dust while the armed world is drawn
 bool HoldsParticle() {
     bool blend = g_state.simple[gpu::kMBlendEnable / 4] != 0, zwrite = g_state.simple[gpu::kMZWriteEnable / 4] != 0;
-    bool additive = g_state.simple[gpu::kMDestBlend / 4] == 1;  // D3DBLEND_ONE: light added
-    return g_backend && blend && !zwrite && !additive && !gpu::IsPretransformed(g_state) && g_ao.armed &&
+    // D3DBLEND_ONE: light added, drawn at once, unless something is held already: then it is held too, in order. The
+    // objective star is a dark star then its additive glow: the glow went first and the replayed dark one covered it
+    // (a black star; user, 2026-11-13)
+    bool additive = g_state.simple[gpu::kMDestBlend / 4] == 1;
+    if (additive && !g_held_n) return false;
+    return g_backend && blend && !zwrite && !gpu::IsPretransformed(g_state) && g_ao.armed &&
            g_ao.frame == g_presents.load() && g_draws - g_ao.draws >= kWorldDraws;
 }
 
@@ -719,14 +723,20 @@ bool HoldsParticle() {
 void BeforeDraw(bool up) {
     bool screen = gpu::IsPretransformed(g_state);
     bool blend = g_state.simple[gpu::kMBlendEnable / 4] != 0, zwrite = g_state.simple[gpu::kMZWriteEnable / 4] != 0;
-    if (screen) {
+    // depth not tested (off, or D3DCMP_ALWAYS) nor written: 2D over the world, a HUD drawn as ordinary draws (this
+    // game's), the end of the world as a screen space draw is. Without it a frame with no weapon (no depth clear) and
+    // no screen space draw had no AO at all once particles stopped setting it off (training map; user, 2026-11-13)
+    constexpr uint32_t kCmpAlways = 0x207;
+    bool flat = !zwrite && (g_state.rs[gpu::kRsZEnable] == 0 || g_state.simple[gpu::kMZFunc / 4] == kCmpAlways);
+    if (screen || flat) {
         if (g_ao.armed && g_draws - g_ao.draws >= kWorldDraws) RunOcclusion();
         ReleaseParticles();
     }
     if (!g_tracing) return;
     // vertex buffer draws: o opaque, B blended writing depth, b blended not, n neither; DrawVerticesUP's (particles
-    // and the like): u blended not writing depth, U any other; h screen space
+    // and the like): u blended not writing depth, U any other; h screen space, f flat (no depth test nor write)
     if (screen) Trace('h');
+    else if (flat) Trace('f');
     else if (up) Trace(blend && !zwrite ? 'u' : 'U');
     else Trace(blend ? (zwrite ? 'B' : 'b') : (zwrite ? 'o' : 'n'));
 }
@@ -1523,9 +1533,11 @@ void DrawUp(uint32_t prim, uint32_t count, const void* vertices, uint32_t stride
     // indexed: count is of indices, the ring takes the vertices up to the highest one
     uint32_t used = indices ? *std::max_element(indices, indices + count) + 1u : count;
     auto stream = g_state.streams[0];
-    g_state.streams[0] = {UpVertices(vertices, used * stride), stride};
     g_draws++;
+    // before this draw's vertices go up: the held particles BeforeDraw may draw put theirs in the same ring header,
+    // and this draw then took the last one's (the objective star drawn as a smoke puff's shape; user, 2026-11-13)
     BeforeDraw(true);
+    g_state.streams[0] = {UpVertices(vertices, used * stride), stride};
     ReportScreenBox(0, count, indices);
     if (HoldsParticle()) {  // smoke or dust over the world: drawn after the occlusion (ReleaseParticles)
         if (g_held_n == g_held.size()) g_held.push_back(std::make_unique<HeldDraw>());

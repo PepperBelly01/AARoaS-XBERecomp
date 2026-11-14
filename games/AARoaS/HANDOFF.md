@@ -298,6 +298,9 @@ automatically through `../../cmake/XbeRecomp.cmake`; no `sdk\` copy is needed.
   also logs each 2D draw's placing for three frames ("2d trace:"). A new additive piece (no match last frame) is
   world from its first frame: placed by its third it flashed a second sun for a frame as the sun came into view or a
   fast turn moved a piece past kMoved (desert map; user confirmed gone 2026-11-13).
+  Frame3D's hold (10 frames after the last 3D draw) also ends after 250 ms, and a frame with no 3D that draws a 2D
+  layer over the whole screen is 2D at once: a checkpoint's first loading frame (trace h5) came within the hold and
+  stayed up stretched 16:9 while the load ran (user confirmed 2026-11-13).
 - **HUD on 16:9** (`runtime\gpu\screen2d.cpp`, GameInfo::screen_2d): the HUD is fixed function draws through an
   orthographic projection. Each frame's such draws are cut into runs in draw order (touching pieces: a 3x3 box, then
   its text); a run is narrowed to 4:3 about the side it sits on or the centre (applied to that draw's wvp the next
@@ -339,6 +342,12 @@ automatically through `../../cmake/XbeRecomp.cmake`; no `sdk\` copy is needed.
   tunnel drew smoke before its last depth writers, the desert a muzzle puff before its bushes. Additive draws
   (flashes) go at once. A replayed draw marks all simple states (gpu::MarkAllSimple): the render thread sends only
   marked ones, and without it the smoke took the world's blend and textures. Desert bush flicker not re-checked.
+  Later the same day (user confirmed): a flat draw (no depth test, D3DRS_ZENABLE off or D3DCMP_ALWAYS, nor write;
+  this game's HUD, trace letter f) also ends the world: frames with no weapon and no screen space draw (training
+  map) had no AO at all once particles stopped setting it off. Once something is held, additive particles are held
+  too, in order (the objective star: a dark star, then its additive glow, came out black). DrawUp uploads its
+  vertices after BeforeDraw: releasing held particles rewrote the shared UP ring header, and the flying objective
+  star took a smoke puff's vertices.
   Fog (user confirmed 2026-11-13, a snowy mission): AO showed through distance fog. The world draws' fog (start, end,
   density, mode, recorded in UploadConstants with the scene depth) goes to occlusion_apply, which fades the darkening
   by the same fog factor the surfaces get. This game: linear, 1000 to 10000. Vertex program fog (no distances) is
@@ -476,6 +485,15 @@ automatically through `../../cmake/XbeRecomp.cmake`; no `sdk\` copy is needed.
   steady time less the holds (a seqlock), read by the tick count thread, interrupt time, KeQueryPerformanceCounter,
   x86_rdtsc and DirectSound's sample time. From the SCDA recomp (which left the sample time out). Kernel wait
   timeouts stay on real time. Not tried: play, menus, minimizing (same code path).
+
+- **HDR Output** (`runtime\gpu\d3d12.cpp`, Settings::hdr_output default on, overlay Display; user confirmed bright,
+  2026-11-13, display 440 nits peak, SDR white 240): from the BLACK recomp. UpdateHdrDisplay each present finds the
+  window's monitor (FindOutput, DXGI_OUTPUT_DESC1: G2084/P2020 = Windows HDR on; MaxLuminance, capped 4000;
+  SdrWhiteNits from DisplayConfig), a stale factory remade. ResizeSwap switches the swap chain to R10G10B10A2 with
+  colour space G2084_P2020 (falls back to BGRA/sRGB). DrawFrame then draws the frame (BlitFrame into an R16G16B16A16
+  target) and ImGui (into a BGRA panel target), and kHdrHlsl's hdr10 pass puts both into the back buffer: gamma 2.2
+  to linear, inverse Reinhard on luminance up to the peak, SDR white at Windows' level, panel at SDR white, BT.2020,
+  PQ. The overlay hint says when the display has no Windows HDR (app::HdrDisplay).
 
 ## Future: PC features the user wants (paused 2026-11-10)
 Still to do (2026-11-12): the lowered gun under Free Look (see Free Look), a controller combo to open the overlay, overlay navigation for non-Xbox pads (ImGui's backend reads XInput pad 0 only).
