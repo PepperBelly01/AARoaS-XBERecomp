@@ -350,6 +350,8 @@ struct Tex {
     uint32_t pack_gen = 0;      // texturedumper::Generation the key was taken at, 0 after new bytes
 };
 
+constexpr int kAoConstants = 24;  // kAoHlsl's cbuffer A: proj, zp, vp, opt, fog, fogp
+
 struct PsoKey {
     uint64_t vs;
     uint64_t ps;
@@ -644,7 +646,7 @@ private:
     void Occlusion(const State& s, const float p[kOcclusionParams]) override;
     bool EnsureAoTargets(uint32_t w, uint32_t h);
     bool DrawAoPass(const char* entry, DXGI_FORMAT out, uint32_t samples, bool multiply, D3D12_CPU_DESCRIPTOR_HANDLE rtv,
-                    ID3D12Resource* depth, ID3D12Resource* src, const float c[20], const D3D12_RECT& rect, uint32_t w,
+                    ID3D12Resource* depth, ID3D12Resource* src, const float c[kAoConstants], const D3D12_RECT& rect, uint32_t w,
                     uint32_t h);
     void RenderUi();
     void ReleaseOldTextures();
@@ -804,6 +806,8 @@ private:
     uint32_t ao_w_ = 0, ao_h_ = 0;
     bool scene_w_buffer_ = false;
     float scene_w_scale_ = 0, scene_far_w_ = 0;
+    float scene_fog_[4] = {};          // the fog of the world's draws since the last occlusion: start, end, density, mode
+    bool scene_program_fog_ = false;   // some of them fogged by their vertex program instead
     uint8_t ramp_[768] = {};
     bool ramp_dirty_ = false;
     bool gamma_ = false;
@@ -2660,6 +2664,12 @@ void D3D12Backend::UploadConstants(const State& s, const DrawShaders& sh, const 
         scene_w_buffer_ = s.rs[kRsZEnable] == kZUseW && c.zparams[0] > 0;
         scene_w_scale_ = c.zparams[0];
         scene_far_w_ = c.zparams[1];
+        // and fades where the world's draws are fogged: their fog by distance (start, end, density, mode), or the
+        // vertex program's own fog, which leaves no distances to fade by
+        if (s.rs[kRsFogEnable]) {
+            if (sh.prog && s.rs[kRsFogTableMode] == kFogTableNone) scene_program_fog_ = true;
+            else std::copy(std::begin(c.fog), std::end(c.fog), std::begin(scene_fog_));
+        }
     }
     FillTextureConstants(s, sh, stages, c);
     if (sh.fixed_transform) {
@@ -3620,7 +3630,7 @@ ID3D12Resource* D3D12Backend::Smaa(ID3D12Resource* src, DXGI_FORMAT fmt, uint32_
 // Ambient occlusion from the scene's depth (after the reference's, SSAO or GTAO): occlusion, a blur across, then a
 // blur down that multiplies it into the scene. Depth is reversed (1 near, 0 far, cleared far: the sky is far away).
 const char* kAoHlsl = R"(
-cbuffer A : register(b1) { float4 proj; float4 zp; float4 vp; float4 opt; float4 fog; };
+cbuffer A : register(b1) { float4 proj; float4 zp; float4 vp; float4 opt; float4 fog; float4 fogp; };
 Texture2D<float> depth : register(t0);
 Texture2D<float2> ao : register(t1);
 float Raw(int2 p) { return depth.Load(int3(p, 0)); }
@@ -3724,8 +3734,13 @@ float2 occlusion_blur(float4 pos : SV_Position) : SV_Target {
 }
 float4 occlusion_apply(float4 pos : SV_Position) : SV_Target {
     float z, a = Smooth(pos.xy, z);
-    // fog.x: strength, the share of the darkening kept (above 1 deepens it)
-    return float4(saturate(1 - (1 - a) * fog.x).xxx, 1);
+    // fog.x: strength, the share of the darkening kept (above 1 deepens it). fogp: the world's fog (start, end,
+    // density, mode as D3DFOGMODE): the darkening fades as the fog covers the surface, so none shows through it
+    float d = abs(z), seen = 1;
+    if (fogp.w == 3 && fogp.y > fogp.x) seen = (fogp.y - d) / (fogp.y - fogp.x);
+    if (fogp.w == 1) seen = exp(-d * fogp.z);
+    if (fogp.w == 2) seen = exp(-(d * fogp.z) * (d * fogp.z));
+    return float4(saturate(1 - (1 - a) * fog.x * saturate(seen)).xxx, 1);
 }
 )";
 
@@ -3764,7 +3779,7 @@ bool D3D12Backend::EnsureAoTargets(uint32_t w, uint32_t h) {
 // one pass over rect of a w x h target: t0 the scene's depth, t1 an occlusion target; multiply blends it into the scene
 bool D3D12Backend::DrawAoPass(const char* entry, DXGI_FORMAT out, uint32_t samples, bool multiply,
                               D3D12_CPU_DESCRIPTOR_HANDLE rtv, ID3D12Resource* depth, ID3D12Resource* src,
-                              const float c[20], const D3D12_RECT& rect, uint32_t w, uint32_t h) {
+                              const float c[kAoConstants], const D3D12_RECT& rect, uint32_t w, uint32_t h) {
     uint64_t seed = uint64_t(out) | uint64_t(samples) << 32 | uint64_t(multiply) << 40;
     uint64_t key = Hash(entry, std::strlen(entry), Hash(kAoHlsl, std::strlen(kAoHlsl), seed));
     auto& pso = blit_psos_[key];
@@ -3797,7 +3812,7 @@ bool D3D12Backend::DrawAoPass(const char* entry, DXGI_FORMAT out, uint32_t sampl
         dev_->CreateShaderResourceView(reads[i], &sv, Cpu(srv_heap_.Get(), slot + i, srv_inc_));
     }
     Alloc cb = Upload(256, 256);
-    std::memcpy(cb.cpu, c, 20 * sizeof(float));
+    std::memcpy(cb.cpu, c, kAoConstants * sizeof(float));
     cl_->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
     D3D12_VIEWPORT vp{0, 0, float(w), float(h), 0, 1};
     cl_->RSSetViewports(1, &vp);
@@ -3829,9 +3844,23 @@ void D3D12Backend::Occlusion(const State& s, const float p[kOcclusionParams]) {
     if (!depth) return;
     bound_rt_ = bound_ds_ = nullptr;
     float rw = float(rect.right - rect.left), rh = float(rect.bottom - rect.top);
-    // kAoHlsl's proj, zp, vp, opt (radius, most pixels, blur step) and fog
-    float c[20] = {p[0], p[1], p[2], p[3], zp0, zp1, 0, 0, float(rect.left), float(rect.top), rw, rh,
-                   kAoRadius, kAoMaxSpan * rh, 0, 0, app::Get().ao_strength / 100.0f, 0, 0, 0};
+    // the world's fog since the last occlusion, told in the log as it changes, then forgotten for the next frame's
+    {
+        static float told_fog[4] = {-1, -1, -1, -1};
+        static bool told_program = false;
+        if (std::memcmp(told_fog, scene_fog_, sizeof(told_fog)) || told_program != scene_program_fog_) {
+            std::copy(std::begin(scene_fog_), std::end(scene_fog_), std::begin(told_fog));
+            told_program = scene_program_fog_;
+            LOGR("d3d12: ambient occlusion under fog mode %.0f, start %.1f, end %.1f, density %.6f%s", scene_fog_[3],
+                 scene_fog_[0], scene_fog_[1], scene_fog_[2], scene_program_fog_ ? " (and vertex program fog)" : "");
+        }
+    }
+    // kAoHlsl's proj, zp, vp, opt (radius, most pixels, blur step), fog (strength) and fogp
+    float c[kAoConstants] = {p[0], p[1], p[2], p[3], zp0, zp1, 0, 0, float(rect.left), float(rect.top), rw, rh,
+                             kAoRadius, kAoMaxSpan * rh, 0, 0, app::Get().ao_strength / 100.0f, 0, 0, 0,
+                             scene_fog_[0], scene_fog_[1], scene_fog_[2], scene_fog_[3]};
+    std::fill(std::begin(scene_fog_), std::end(scene_fog_), 0.0f);
+    scene_program_fog_ = false;
     auto rtv = [&](int i) { return Cpu(rtv_heap_.Get(), ao_rtv_[i], rtv_inc_); };
     Transition(ao_[0].Get(), ao_state_[0], D3D12_RESOURCE_STATE_RENDER_TARGET);
     if (!DrawAoPass(p[9] ? "gtao" : "occlusion", kAoFormat, 1, false, rtv(0), depth, nullptr, c, rect, rt->w, rt->h))

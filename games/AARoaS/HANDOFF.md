@@ -327,6 +327,10 @@ automatically through `../../cmake/XbeRecomp.cmake`; no `sdk\` copy is needed.
   found 50 to 75% right, more too much). User confirmed the smoke and drop out fixes. A particle only counts once
   16+ blended depth writing draws (vegetation) are in: a muzzle flash before the vegetation ran AO early and the
   vegetation flickered with gunfire (user confirmed fixed).
+  Fog (user confirmed 2026-11-13, a snowy mission): AO showed through distance fog. The world draws' fog (start, end,
+  density, mode, recorded in UploadConstants with the scene depth) goes to occlusion_apply, which fades the darkening
+  by the same fog factor the surfaces get. This game: linear, 1000 to 10000. Vertex program fog (no distances) is
+  logged.
 - **Frame rate** (`src\game\recoil.cpp`, user confirmed 2026-11-12 at 200 FPS, Aim Assist on and off): the game
   steps several things once a call with no regard for frame time, tuned for 30 FPS. Each now runs on a fixed 30 Hz
   clock with a delta time of 1/30 (zero or more steps a frame), eased between steps. GameInfo::max_fps = 0; the
