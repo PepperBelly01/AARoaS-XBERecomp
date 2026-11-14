@@ -171,6 +171,12 @@ Canvas Decide(const Box& b, bool hide, bool wide, bool additive) {
     if (last != g_last.end()) {
         anchor = last->second.anchor;
         world = last->second.world;
+    } else if (additive) {
+        // new light added over the 3D view (a lens flare's piece) follows the world from its first frame: as a new
+        // piece placed by its third it was narrowed for that frame (the sun coming into view, or a fast turn moving a
+        // piece past kMoved), a second sun flashing apart from the first (user, 2026-11-13)
+        anchor = Canvas::Centre;
+        world = true;
     } else if (joins) {
         anchor = g_run_anchor;
     } else if (Moved(b)) {

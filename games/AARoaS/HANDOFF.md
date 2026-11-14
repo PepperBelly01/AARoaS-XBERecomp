@@ -295,7 +295,9 @@ automatically through `../../cmake/XbeRecomp.cmake`; no `sdk\` copy is needed.
   to side on 16:9; user confirmed fixed). But the lens flare is placed through the camera's projection, already widened: narrowed
   again its core sat apart from the sun (two suns in 16:9). Additive draws that follow the world are kept as placed;
   name tags (the game's own 4:3 sums, normal blending) are narrowed (user confirmed 2026-11-13). F9's frame trace
-  also logs each 2D draw's placing for three frames ("2d trace:").
+  also logs each 2D draw's placing for three frames ("2d trace:"). A new additive piece (no match last frame) is
+  world from its first frame: placed by its third it flashed a second sun for a frame as the sun came into view or a
+  fast turn moved a piece past kMoved (desert map; user confirmed gone 2026-11-13).
 - **HUD on 16:9** (`runtime\gpu\screen2d.cpp`, GameInfo::screen_2d): the HUD is fixed function draws through an
   orthographic projection. Each frame's such draws are cut into runs in draw order (touching pieces: a 3x3 box, then
   its text); a run is narrowed to 4:3 about the side it sits on or the centre (applied to that draw's wvp the next
