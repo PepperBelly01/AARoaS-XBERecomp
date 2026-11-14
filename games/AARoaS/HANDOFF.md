@@ -469,6 +469,14 @@ automatically through `../../cmake/XbeRecomp.cmake`; no `sdk\` copy is needed.
 - **Release icons**: release.bat runs make_key_icons.ps1 into the zip's textures\replacement\@keyboard (the menus'
   sheet and @typing); a fresh install had shown the Xbox buttons in every menu.
 
+- **Pause On Focus Loss** (`runtime\app\focus_pause.cpp`, Settings::pause_on_focus_loss, default on, overlay
+  Recomp Settings > General; user confirmed in a cutscene, picture and voice in step, 2026-11-13): at D3DDevice_Swap
+  the game thread waits while the window is in the background or minimized (a hidden window never pauses).
+  audio::SetPaused stops the XAudio2 voice in place; kernel::HoldGuestTime stops the guest's clocks: GuestNow is
+  steady time less the holds (a seqlock), read by the tick count thread, interrupt time, KeQueryPerformanceCounter,
+  x86_rdtsc and DirectSound's sample time. From the SCDA recomp (which left the sample time out). Kernel wait
+  timeouts stay on real time. Not tried: play, menus, minimizing (same code path).
+
 ## Future: PC features the user wants (paused 2026-11-10)
 Still to do (2026-11-12): the lowered gun under Free Look (see Free Look), a controller combo to open the overlay, overlay navigation for non-Xbox pads (ImGui's backend reads XInput pad 0 only).
 

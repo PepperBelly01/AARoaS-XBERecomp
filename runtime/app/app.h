@@ -29,6 +29,7 @@ struct Settings {
     bool fps_counter = false;        // frames a second, top left
     bool hide_hud = false;           // the 2D over the 3D view is not drawn (GameInfo::screen_2d)
     bool skip_intros = false;        // the boot movies, for a game whose hooks honour it (GameInfo::skip_intros)
+    bool pause_on_focus_loss = true;  // the game and its sound wait while the window is in the background (focus_pause.cpp)
     uint32_t aniso = 0;              // 0 as the game asks
     bool smaa = false;               // SMAA over the finished frame, HUD included
     uint32_t msaa = 0;               // samples a pixel of the scene, 0 off (2, 4 or 8)
@@ -96,6 +97,7 @@ std::string Sha1(const std::vector<uint8_t>& data);  // lower case hex
 bool PrepareGameCode(const GameFiles& game);
 int Instance();  // --instance N on the command line, 0 without: a second copy on this PC for system link tests
 void* Window();  // HWND
+void WaitWhileUnfocused();  // focus_pause.cpp: the game thread, at its Swap
 // boot splash: GameInfo::splash .bmp or .png beside the exe, up before the game window
 bool OpenSplash();        // window thread, at launch; false without one, and the game window opens at once
 void SplashFirstFrame();  // the game's first Swap: waits out the splash's minimum, then opens the game window

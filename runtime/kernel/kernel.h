@@ -1,6 +1,7 @@
 #pragma once
 #include <array>
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <cstdint>
 #include <cstring>
@@ -140,6 +141,10 @@ int32_t PulseEvent(Object& o);
 int32_t ReleaseSemaphore(Object& o, int32_t count, uint32_t& status);
 int32_t ReleaseMutant(Object& o, uint32_t& status);
 int64_t Now100ns();                           // system time, 100 ns since 1601
+// the guest's clocks (tick count, performance counter, rdtsc, the APU's sample time): steady time less a focus
+// pause's holds, which stop them (app/focus_pause.cpp)
+std::chrono::steady_clock::time_point GuestNow();
+void HoldGuestTime(bool held);
 int64_t ToDeadline(int64_t due_100ns);        // relative or absolute to a steady clock deadline in ns
 void QueueDpc(uint32_t dpc, uint32_t arg1, uint32_t arg2);
 struct Thread;

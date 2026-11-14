@@ -819,6 +819,7 @@ HLE_STDCALL(D3DDevice_EnableOverlay, 1) {
 }
 
 HLE_STDCALL(D3DDevice_Swap, 1) {
+    app::WaitWhileUnfocused();  // a focus pause: the game waits here, its clocks and sound stopped
     app::SplashFirstFrame();
     // handed over from the previous instance: the window opens on the second frame, the first picture with
     // anything drawn over it right after

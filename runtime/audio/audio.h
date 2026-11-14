@@ -24,4 +24,7 @@ constexpr uint32_t kOutputSurround = 2;
 constexpr uint32_t kOutputMono = 3;
 void SetOutputMode(uint32_t mode);
 
+// a focus pause (app/focus_pause.cpp): the output stops where it is and nothing is mixed until it is let go
+void SetPaused(bool paused);
+
 }  // namespace audio

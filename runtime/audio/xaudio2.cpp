@@ -36,6 +36,7 @@ constexpr DWORD kSourceSpeaker[kChannels] = {SPEAKER_FRONT_LEFT, SPEAKER_FRONT_R
 std::atomic<bool> g_surround{false};
 std::atomic<bool> g_mono{false};
 std::atomic<uint32_t> g_mode{kOutputAuto};
+std::atomic<bool> g_paused{false};  // SetPaused: a focus pause
 std::atomic<bool> g_mode_changed{false};
 
 // XAudio2 stops for good once its device goes (unplugged, an HDMI display changing mode)
@@ -202,9 +203,20 @@ void Pump(Output& out, const std::function<void(float*, uint32_t)>& render) {
     constexpr uint32_t kSlots = kMaxQueued + 1;
     std::vector<float> bufs(kSlots * kFrames * kChannels);
     uint32_t depth = kMinQueued;
+    bool stopped = false;
     for (uint32_t n = 0;;) {
         if (g_device.lost) return;
         if (g_mode_changed.exchange(false)) ApplyMatrix(out);
+        // a focus pause: the voice stops where it is (its queued buffers kept) and nothing more is mixed
+        if (g_paused != stopped) {
+            stopped = !stopped;
+            if (stopped) out.voice->Stop();
+            else out.voice->Start();
+        }
+        if (stopped) {
+            Sleep(10);
+            continue;
+        }
         XAUDIO2_VOICE_STATE st;
         out.voice->GetState(&st, XAUDIO2_VOICE_NOSAMPLESPLAYED);
         // a starved voice crackles: queue one buffer more each time, up to kMaxQueued
@@ -231,6 +243,8 @@ void Pump(Output& out, const std::function<void(float*, uint32_t)>& render) {
 bool IsSurround() { return g_surround; }
 
 bool IsMono() { return g_mono; }
+
+void SetPaused(bool paused) { g_paused = paused; }
 
 void SetOutputMode(uint32_t mode) {
     if (g_mode.exchange(mode) != mode) g_mode_changed = true;

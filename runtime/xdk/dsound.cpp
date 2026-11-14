@@ -1020,8 +1020,8 @@ HLE_STDCALL(DirectSoundUseFullHRTF, 0) { return 0; }
 static uint32_t SampleTime() {
     using namespace std::chrono;
     using Samples = duration<int64_t, std::ratio<1, audio::kRate>>;
-    static const steady_clock::time_point start = steady_clock::now();
-    return uint32_t(duration_cast<Samples>(steady_clock::now() - start).count());
+    static const steady_clock::time_point start = kernel::GuestNow();
+    return uint32_t(duration_cast<Samples>(kernel::GuestNow() - start).count());
 }
 
 HLE_STDCALL(DirectSoundGetSampleTime, 0) { return SampleTime(); }

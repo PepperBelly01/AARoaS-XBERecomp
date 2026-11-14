@@ -88,6 +88,7 @@ void Load() {
     s.fps_counter = t["fps_counter"].value_or(s.fps_counter);
     s.hide_hud = t["hide_hud"].value_or(s.hide_hud);
     s.skip_intros = t["skip_intros"].value_or(s.skip_intros);
+    s.pause_on_focus_loss = t["pause_on_focus_loss"].value_or(s.pause_on_focus_loss);
     s.aniso = t["anisotropic_filtering"].value_or(s.aniso);
     s.smaa = t["smaa"].value_or(s.smaa);
     s.msaa = std::min(t["msaa"].value_or(s.msaa), 8u);
@@ -150,6 +151,7 @@ toml::table Table() {
                   {"fps_counter", s.fps_counter},
                   {"hide_hud", s.hide_hud},
                   {"skip_intros", s.skip_intros},
+                  {"pause_on_focus_loss", s.pause_on_focus_loss},
                   {"anisotropic_filtering", int64_t(s.aniso)},
                   {"smaa", s.smaa},
                   {"msaa", int64_t(s.msaa)},

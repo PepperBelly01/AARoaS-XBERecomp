@@ -346,7 +346,9 @@ void DrawRecomp() {
                                      {audio::kOutputMono, "Mono"}},
           "Automatic follows the speakers Windows has set up.");
 
-    if (kGame.skip_intros || kGame.persistent_bodies) Section("General");
+    Section("General");
+    Toggle("Pause On Focus Loss", s.pause_on_focus_loss,
+           "The game and its sound wait while the window is in the background or minimized.");
     if (kGame.skip_intros)
         Toggle("Skip Intros", s.skip_intros, "The logo and rating movies at start up. Takes effect the next start.");
     if (kGame.persistent_bodies)
@@ -435,6 +437,7 @@ void ResetTab() {
         s.fps_counter = d.fps_counter;
         s.hide_hud = d.hide_hud;
         s.skip_intros = d.skip_intros;
+        s.pause_on_focus_loss = d.pause_on_focus_loss;
         s.aniso = d.aniso;
         s.smaa = d.smaa;
         s.msaa = d.msaa;
