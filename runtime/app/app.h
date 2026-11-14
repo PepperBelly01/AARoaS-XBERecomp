@@ -56,6 +56,7 @@ struct Settings {
     uint32_t ao_strength = 50;       // percent of the occlusion's darkening, 25 to 200 (50 looked right in play)
     uint32_t grass_distance = 100;   // percent of the game's own grass fade distance (GameInfo::grass_distance)
     uint32_t persistent_bodies = 0;  // dead soldiers kept: 0 the game's own, kBodiesAll every one (GameInfo::persistent_bodies)
+    uint32_t weapon_tuning = 0;  // 0 the game's weapon values, 1 weapon_tuning.ini's over them (GameInfo::weapon_tuning)
     bool custom_textures = true;     // images in textures\replacement\ beside the exe replace the game's
     bool dump_textures = false;      // each texture once into textures\dumps\ beside the exe
     uint32_t texture_dump_format = 0;  // 0 PNG, 1 DDS
@@ -157,6 +158,7 @@ struct GameInfo {
     bool movement_modes = false;  // the game side honours Settings::sprint_mode and lean_mode: the overlay offers them
     bool grass_distance = false;  // the game side honours Settings::grass_distance: the overlay offers it
     bool persistent_bodies = false;  // the game side honours Settings::persistent_bodies: the overlay offers it
+    bool weapon_tuning = false;  // the game side merges weapon_tuning.ini with Settings::weapon_tuning: the overlay offers it
     // a radial menu (the weapon wheel) opened by holding the key that presses this analog button (0 A ... 3 Y), -1
     // none: while it is held the mouse points the left stick instead of looking around
     int radial_menu_analog = -1;

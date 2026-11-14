@@ -249,9 +249,20 @@ static bool Aim(input::Pad& pad, bool in_play) {
     return on;
 }
 
+uint8_t SqueezeTrigger(uint8_t pressed);  // trigger.cpp: Fire on the mouse as a squeeze
+
+static void StanceKeyboard(input::Pad& pad);
+
 // GameInfo::pad: every poll, after the keys are merged in
 void StancePad(int port, input::Pad& pad) {
     if (port != 0) return;
+    StanceKeyboard(pad);
+    // the keyboard and mouse in play: Fire (the right trigger) squeezed, not pulled in one poll (trigger.cpp)
+    if (!input::UsingPad() && input::MouseLooks()) pad.analog[7] = SqueezeTrigger(pad.analog[7]);
+    else SqueezeTrigger(0);
+}
+
+static void StanceKeyboard(input::Pad& pad) {
     if (!input::UsingPad() && g_pawn) {
         ULONGLONG now = GetTickCount64();
         uint16_t pressed = pad.buttons & ~g_last_buttons;

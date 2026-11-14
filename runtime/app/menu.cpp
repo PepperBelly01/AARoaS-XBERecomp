@@ -361,6 +361,10 @@ void DrawRecomp() {
               {{0, "Off (Original)"}, {32, "32"}, {64, "64"}, {128, "128"}, {kBodiesAll, "All"}},
               "How many dead soldiers stay on the map, newest first. Off removes each body when the next soldier dies, "
               "as the original does.");
+    if (kGame.weapon_tuning)
+        Cycle("Recoil System", s.weapon_tuning, {{0, "Original"}, {1, "Revised"}},
+              "Revised puts the values in weapon_tuning.ini beside the exe (recoil, sway, accuracy, fire rate per weapon) "
+              "over the game's. Takes effect the next start.");
 }
 
 // the game's aiming help (GameInfo::aim_assist), in both the Mouse and Keyboard and the Controller tabs
@@ -451,6 +455,7 @@ void ResetTab() {
         s.ao_strength = d.ao_strength;
         s.grass_distance = d.grass_distance;
         s.persistent_bodies = d.persistent_bodies;
+        s.weapon_tuning = d.weapon_tuning;
         s.audio_output = d.audio_output;
     } else if (g_tab == 1) {
         s.mouse_x = d.mouse_x;

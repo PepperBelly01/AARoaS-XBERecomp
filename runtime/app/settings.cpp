@@ -98,6 +98,7 @@ void Load() {
     s.ao_strength = std::clamp(t["ao_strength"].value_or(s.ao_strength), 25u, 200u);
     s.grass_distance = std::clamp(t["grass_distance"].value_or(s.grass_distance), 100u, 400u);
     s.persistent_bodies = t["persistent_bodies"].value_or(s.persistent_bodies);
+    s.weapon_tuning = std::min(t["weapon_tuning"].value_or(s.weapon_tuning), 1u);
     if (s.persistent_bodies != kBodiesAll) s.persistent_bodies = std::min(s.persistent_bodies, 256u);
     s.mouse_x = std::clamp(t["mouse_x"].value_or(s.mouse_x), 0.1f, 10.0f);
     s.mouse_y = std::clamp(t["mouse_y"].value_or(s.mouse_y), 0.1f, 10.0f);
@@ -162,6 +163,7 @@ toml::table Table() {
                   {"ao_strength", int64_t(s.ao_strength)},
                   {"grass_distance", int64_t(s.grass_distance)},
                   {"persistent_bodies", int64_t(s.persistent_bodies)},
+                  {"weapon_tuning", int64_t(s.weapon_tuning)},
                   {"mouse_x", double(s.mouse_x)},
                   {"mouse_y", double(s.mouse_y)},
                   {"invert_mouse_x", s.invert_mouse_x},

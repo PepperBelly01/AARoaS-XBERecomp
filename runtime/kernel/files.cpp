@@ -285,14 +285,31 @@ Target Resolve(const std::string& xbox_path, uint32_t root_handle) {
             std::error_code ec;
             if (fs::is_regular_file(host, ec)) {
                 std::ifstream in(host, std::ios::binary);
-                std::vector<uint8_t> data(std::istreambuf_iterator<char>(in), {});
+                std::vector<uint8_t> had(std::istreambuf_iterator<char>(in), {});
                 in.close();
+                // patched from the disc's file of the same path when there is one, not the copy: a patch that can be
+                // switched off (Recoil System) has the game's own back, and one made before is made again from clean
+                std::vector<uint8_t> data;
+                bool from_disc = false;
+                if (const Disc* disc = MountedDisc()) {
+                    if (const Disc::Entry* e = disc->Find(parts); e && !e->dir) {
+                        data.resize(e->size);
+                        from_disc = disc->Read(*e, 0, data.data(), e->size) == e->size;
+                    }
+                } else if (auto d = g_devices.find(kCdRom); d != g_devices.end()) {
+                    std::ifstream orig(MatchCase(d->second, parts), std::ios::binary);
+                    if (orig) {
+                        data.assign(std::istreambuf_iterator<char>(orig), {});
+                        from_disc = true;
+                    }
+                }
+                if (!from_disc) data = had;
                 std::string path;
                 for (size_t i = 0; i < parts.size(); i++) path += (i ? "\\" : "") + parts[i];
-                if (app::kGame.patch_file(path.c_str(), data)) {
+                if (app::kGame.patch_file(path.c_str(), data) && data != had) {
                     std::ofstream f(host, std::ios::binary | std::ios::trunc);
                     f.write(reinterpret_cast<const char*>(data.data()), std::streamsize(data.size()));
-                    LOGR("files: Z:\\%s patched", path.c_str());
+                    LOGR("files: Z:\\%s patched%s", path.c_str(), from_disc ? " from the disc's" : "");
                 }
             }
         }

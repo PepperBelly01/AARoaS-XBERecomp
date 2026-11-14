@@ -495,6 +495,21 @@ automatically through `../../cmake/XbeRecomp.cmake`; no `sdk\` copy is needed.
   to linear, inverse Reinhard on luminance up to the peak, SDR white at Windows' level, panel at SDR white, BT.2020,
   PQ. The overlay hint says when the display has no Windows HDR (app::HdrDisplay).
 
+- **Recoil System** (`src\game\tuning.cpp`, Settings::weapon_tuning 0 Original / 1 Revised, overlay General; user
+  confirmed 2026-11-13): System\AACTuning.ini holds each weapon's RecoilPitch / RecoilYaw (Min, Max), fRecoilFalloff,
+  fWaverLimit / fWaverStrength, fJitter, fWeaponAcc, fire rates. The game copies it to Z:\System\ and reads that
+  copy; text.cpp's patch hook hands it to PatchWeaponTuning, which on Revised puts weapon_tuning.ini's lines (beside
+  the exe: only the changed keys, same section names; a key given twice replaces all its lines) over the game's.
+  files.cpp now patches a Z: copy from the disc's file of the same path (not the copy), so Original truly restores and
+  Revised is made from clean each start. Read once at start. The test file sets zero recoil on all 11 weapons; the
+  user's own values go there. For a public release weapon_tuning.ini can ship (only the user's numbers).
+- **Mouse trigger squeeze** (`src\game\trigger.cpp`, stance.cpp StancePad; user confirmed 2026-11-13, "as smooth as
+  the controller, with the precision of a mouse"): Fire is the right trigger's pressure, a shot at 80 of 255
+  (TriggerSensitivity=80), and a fast rise jerks the muzzle down and sideways (HumanController.UpdateTriggerVelocity;
+  probes found the kick, view recoil, vWaver and TASOffset (pawn +0x250) unchanged between a slow and a hard pull: the
+  jerk is the rise, seen only with Revised's zero recoil). On the keyboard and mouse in play Fire now goes at once to
+  76, then rises 200 a second (through 80 ~20 ms after the click) to full; let go, 0. The pad's trigger is untouched.
+
 ## Future: PC features the user wants (paused 2026-11-10)
 Still to do (2026-11-12): the lowered gun under Free Look (see Free Look), a controller combo to open the overlay, overlay navigation for non-Xbox pads (ImGui's backend reads XInput pad 0 only).
 

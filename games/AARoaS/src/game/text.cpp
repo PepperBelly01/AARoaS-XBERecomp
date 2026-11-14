@@ -60,9 +60,13 @@ int Apply(std::vector<uint8_t>& data, const Swap& swap) {
 
 }  // namespace
 
+bool PatchWeaponTuning(std::vector<uint8_t>& data);  // tuning.cpp: Weapon Tuning
+
 bool PatchGameText(const char* path, std::vector<uint8_t>& data) {
     std::string name = path;
     for (char& c : name) c = char(std::toupper(uint8_t(c)));
+    if (name.size() >= 20 && name.compare(name.size() - 20, 20, "SYSTEM\\AACTUNING.INI") == 0)
+        return PatchWeaponTuning(data);
     if (name != "UI\\XBOX\\STRINTX.PKG") return false;
     int done = 0;
     for (const Swap& s : kEnglish) {
