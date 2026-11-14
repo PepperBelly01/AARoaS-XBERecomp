@@ -369,12 +369,14 @@ void DrawRecomp() {
 
 // the game's aiming help (GameInfo::aim_assist), in both the Mouse and Keyboard and the Controller tabs
 constexpr const char* kAimAssistHint =
-    "The game's lock on. Sighted near an enemy, your aim is pulled onto them and held there inside a circle "
-    "around them, and jumps to the next enemy nearby. Off, your aim goes only where you move it, with the mouse "
-    "or the stick.";
+    "The game's own Auto Sighting option (also in its Game Options). On, sighted near an enemy your aim is pulled "
+    "onto them and jumps to the next one nearby. Off, your aim goes only where you move it.";
 constexpr const char* kTargetZoomHint =
     "Sighted on an enemy, the game zooms in by how far away they are, so each target has its own zoom. Off, the "
-    "zoom stays as your sights or scope have it. Works with Aim Assist on or off.";
+    "zoom stays as your sights or scope have it. Works with Auto-Sighting on or off.";
+constexpr const char* kAcquisitionHint =
+    "The game's own Acquisition Icon option (also in its Game Options): the red dot over the enemy you are sighted "
+    "on. With Target Zoom off it sits away from the enemy, so you may want it off too.";
 constexpr const char* kZoomSensitivityHint =
     "With Target Zoom: as the game zooms in on a target, your aim slows down to match, for finer aim on far "
     "targets. Off, your aim keeps the same speed however far it zooms. The original game has this on at 100%.";
@@ -385,12 +387,15 @@ constexpr const char* kZoomStrengthHint =
 // Target Zoom, and under it Zoom Sensitivity with its strength
 void DrawTargetZoom(Settings& s) {
     Toggle("Target Zoom", s.auto_zoom, kTargetZoomHint);
-    if (!s.auto_zoom) return;
-    Toggle("Zoom Sensitivity", s.zoom_sensitivity, kZoomSensitivityHint);
-    if (!s.zoom_sensitivity) return;
-    std::vector<Choice> shares;
-    for (uint32_t p = 10; p <= 100; p += 10) shares.push_back({p, std::to_string(p) + "%"});
-    Cycle("Strength", s.zoom_sensitivity_percent, shares, kZoomStrengthHint);
+    if (s.auto_zoom) {
+        Toggle("Zoom Sensitivity", s.zoom_sensitivity, kZoomSensitivityHint);
+        if (s.zoom_sensitivity) {
+            std::vector<Choice> shares;
+            for (uint32_t p = 10; p <= 100; p += 10) shares.push_back({p, std::to_string(p) + "%"});
+            Cycle("Strength", s.zoom_sensitivity_percent, shares, kZoomStrengthHint);
+        }
+    }
+    Toggle("Acquisition Icon", s.acquisition_icon, kAcquisitionHint);
 }
 
 void DrawMouseKeyboard() {
@@ -401,7 +406,7 @@ void DrawMouseKeyboard() {
     Toggle("Invert X Axis", s.invert_mouse_x, "Mouse right turns left.");
     Toggle("Invert Y Axis", s.invert_mouse_y, "Mouse forward looks down.");
     if (kGame.aim_assist) {
-        Toggle("Aim Assist", s.aim_assist, kAimAssistHint);
+        Toggle("Auto-Sighting", s.aim_assist, kAimAssistHint);
         DrawTargetZoom(s);
     }
     Section("Movement");
@@ -425,7 +430,7 @@ void DrawController() {
     Toggle("Invert X Axis", s.pad_invert_x, "The look stick: right turns left.");
     Toggle("Invert Y Axis", s.pad_invert_y, "The look stick: up looks down.");
     if (kGame.aim_assist) {  // the same settings as in Mouse and Keyboard
-        Toggle("Aim Assist", s.aim_assist, kAimAssistHint);
+        Toggle("Auto-Sighting", s.aim_assist, kAimAssistHint);
         DrawTargetZoom(s);
     }
 }
@@ -463,6 +468,7 @@ void ResetTab() {
         s.invert_mouse_x = d.invert_mouse_x;
         s.invert_mouse_y = d.invert_mouse_y;
         s.aim_assist = d.aim_assist;
+        s.acquisition_icon = d.acquisition_icon;
         s.auto_zoom = d.auto_zoom;
         s.zoom_sensitivity = d.zoom_sensitivity;
         s.zoom_sensitivity_percent = d.zoom_sensitivity_percent;

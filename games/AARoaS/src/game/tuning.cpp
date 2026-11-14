@@ -78,7 +78,7 @@ std::vector<Section> ReadCustom(const std::filesystem::path& file) {
 // text.cpp's patch hook, for System\AACTuning.ini: true always, so Original writes the disc's file back over a
 // Revised stand-in
 bool PatchWeaponTuning(std::vector<uint8_t>& data) {
-    if (app::Get().weapon_tuning != 1) {
+    if (!app::kGame.weapon_tuning || app::Get().weapon_tuning != 1) {  // offered and on, else the game's
         LOGR("weapon tuning: original");
         return true;
     }

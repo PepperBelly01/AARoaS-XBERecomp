@@ -238,8 +238,8 @@ X86_FUNC(sub_00033050) {
 // look axes toward it, once a call with no regard for the time between calls, so at 200 fps it pulled six times as
 // often and the view slid away. Here it runs on the 30 Hz clock with 1/30, and what it put into the axes (the axes
 // are reset each frame and turn the view by their value times the frame's time) is given again every frame until
-// the next step: over a 1/30 the same pull as at 30 fps, smooth. Aim Assist off: as it is (its turn skipped,
-// aim_assist.cpp).
+// the next step: over a 1/30 the same pull as at 30 fps, smooth. Whether it pulls at all is the game's Auto Sighting
+// option (mouse.cpp).
 namespace {
 struct Lock {
     uint32_t controller = 0;
@@ -253,7 +253,7 @@ X86_FUNC(sub_00032DB0) {
     uint32_t self = ctx.ecx, sp = ctx.esp;
     uint32_t owner = X86_MEM32(self + 4);
     uint32_t controller = owner ? X86_MEM32(owner + 0x18) : 0;
-    if (!controller || !app::Get().aim_assist) {
+    if (!controller) {
         __imp__sub_00032DB0(ctx, base);
         return;
     }

@@ -112,9 +112,6 @@ constexpr uint32_t kSearchBytes = 0x1000;                      // of each object
 constexpr int kAdoptChanges = 8;   // the pair matched through this many different yaws
 constexpr int kVerify = 6;         // writes the camera has to follow (or not) to keep (or drop) a find
 constexpr float kUnitsPerCount = 4.0f;  // Rotation units a count at sensitivity 1: 0.022 degrees, as common PC games
-constexpr int32_t kScriptedTurn = 2000;  // Rotation units in one tick (11 degrees): the game turning the view itself
-constexpr int32_t kRecoilYaw = 300;      // a shot's sideways kick at most (AACTuning.ini RecoilYaw 150 to 275)
-constexpr int32_t kMaxLead = 1500;       // the most pull allowed for ahead in one tick (8 degrees)
 
 struct Camera {
     int16_t pitch = 0, yaw = 0;
@@ -122,11 +119,7 @@ struct Camera {
     bool fresh = false;  // set since the last UpdateInput
 } g_cam;
 
-// Aim Assist off: the player's own aim, kept apart from what the game's lock does to the view
-int g_mode = 0;                                  // AimAssist's answer this frame
-uint32_t g_aim_at = 0, g_aim_pitch = 0, g_aim_yaw = 0;  // the aim (at the Rotation it belongs to)
-uint32_t g_pre_at = 0, g_pre_pitch = 0, g_pre_yaw = 0;  // the view the tick started from
-int32_t g_lead_pitch = 0, g_lead_yaw = 0;        // firing: the pull allowed for ahead
+uint32_t g_pre_at = 0;  // the controller's Rotation the tick turns (the view), for the recoil after it
 
 struct Find {
     uint32_t field, offset;
@@ -189,7 +182,7 @@ void Drop() {
 
 }  // namespace
 
-int AimAssist(uint8_t* base, uint32_t viewport);  // aim_assist.cpp: 0, 1 undo the tick's turn, 2 firing
+void AimAssist(uint8_t* base, uint32_t viewport);  // aim_assist.cpp: whether the game holds a target (Target Zoom)
 float ShownFov();                                   // aim_assist.cpp
 bool GamePaused(uint8_t* base, uint32_t viewport);  // aim_assist.cpp
 void MenusPaused(bool paused);                      // menus.cpp
@@ -199,87 +192,24 @@ void StanceFrame(uint8_t* base, uint32_t viewport);  // stance.cpp
 void CutsceneFrame(uint8_t* base, uint32_t viewport);  // cutscene.cpp
 bool InCutscene();                                   // cutscene.cpp
 void LookSpringDefault(X86Context& ctx, uint8_t* base, uint32_t controller);  // below
+void GameOptionsSync(uint8_t* base, uint32_t options);                     // below
+uint32_t PlayerOptions(X86Context& ctx, uint32_t controller);              // below
 void DrawDistanceFrame(uint8_t* base, uint32_t viewport);  // drawdistance.cpp
 
-// the world camera's rotation as this frame builds it (widescreen.cpp's UpdateMatrices hook, the frame's first)
-// Aim Assist off, after the tick, as the frame's world camera is set up (widescreen.cpp): the game's lock turned the
-// view toward its target in the tick. It is put back on the player's aim, and the camera with it, so the pull is never
-// seen. Kept in the aim: a jump (respawn, cutscene), the pitch only brought back toward level (prone and the like),
-// and while firing the kick up and its small sideways jolt beyond the pull that was led for (the settling back down
-// is the player's to do). Not firing, the tick started from the true aim, so the game picks its target fairly and
-// nothing flips back and forth between two targets.
-// this frame's time as a share of a 30 fps tick (1 at 30 fps, 0.15 at 200), smoothed
-float TickShare() {
-    static LARGE_INTEGER last{};
-    static float share = 1;
-    LARGE_INTEGER now, freq;
-    QueryPerformanceCounter(&now);
-    QueryPerformanceFrequency(&freq);
-    if (last.QuadPart) {
-        float s = float(double(now.QuadPart - last.QuadPart) / double(freq.QuadPart) * 30.0);
-        if (s > 0 && s < 8) share += (std::min(s, 1.0f) - share) * 0.1f;
-    }
-    last = now;
-    return share;
-}
-
 bool RecoilTurn(uint8_t* base, uint32_t controller, int32_t& pitch, int32_t& yaw);  // recoil.cpp
-bool RecoilOurs();                                                                  // recoil.cpp
 
+// After the tick, as the frame's world camera is set up (widescreen.cpp): the weapon's recoil and sway (recoil.cpp)
+// turn the view and the camera built from it
 void AimAfterTick(uint8_t* base, uint32_t node) {
-    float share = TickShare();  // every frame, to keep it current
     uint32_t view = g_pre_at;
-    // the weapon's recoil and sway (recoil.cpp), turned here past the undoing of the lock below
-    int32_t recoil_pitch = 0, recoil_yaw = 0;
-    if (view && g_use.offset == 0x124 && Readable(view, 8))
-        RecoilTurn(base, view - 0x124, recoil_pitch, recoil_yaw);
-    auto turn = [&](int32_t p, int32_t y) {
-        if (!p && !y) return;
-        X86_MEM32(view) = X86_MEM32(view) + uint32_t(p);
-        X86_MEM32(view + 4) = X86_MEM32(view + 4) + uint32_t(y);
-        X86_MEM32(node + kNodeRotation) = X86_MEM32(node + kNodeRotation) + uint32_t(p);
-        X86_MEM32(node + kNodeRotation + 4) = X86_MEM32(node + kNodeRotation + 4) + uint32_t(y);
-    };
-    if (!g_mode || !view || view != g_aim_at || !Readable(view, 8)) {
-        if (view && Readable(view, 8)) turn(recoil_pitch, recoil_yaw);
-        return;
-    }
-    int32_t pre_pitch = int16_t(g_pre_pitch), post_pitch = int16_t(X86_MEM32(view));
-    int32_t d_pitch = post_pitch - pre_pitch, d_yaw = int32_t(X86_MEM32(view + 4) - g_pre_yaw);
-    bool jump = std::abs(d_pitch) > kScriptedTurn || std::abs(d_yaw) > kScriptedTurn;
-    if (jump) {
-        g_aim_pitch = X86_MEM32(view);
-        g_aim_yaw = X86_MEM32(view + 4);
-        g_lead_pitch = g_lead_yaw = 0;
-        turn(recoil_pitch, recoil_yaw);
-        return;
-    }
-    int32_t keep_pitch = 0, keep_yaw = 0;
-    bool limit = d_yaw == 0 && d_pitch != 0 && std::abs(post_pitch) < std::abs(pre_pitch);
-    if (g_mode == 2 && RecoilOurs()) {
-        // the kick is not in the tick (recoil.cpp turns it below): only the pitch limits are kept
-        keep_pitch = limit ? d_pitch : 0;
-    } else if (g_mode == 2) {
-        // what came beyond the pull led for is the weapon's: kept. The lead is not learned from these ticks (the
-        // recoil in them fed back into it, and the aim wandered); it stays what the last ticks without firing showed
-        int32_t beyond_pitch = d_pitch - g_lead_pitch, beyond_yaw = d_yaw - g_lead_yaw;
-        keep_pitch = beyond_pitch > 0 || limit ? beyond_pitch : 0;
-        // the kick's share of a tick shrinks with the tick (recoil.cpp: it turns as far a second as at 30 fps)
-        keep_yaw = std::abs(beyond_yaw) <= int32_t(kRecoilYaw * share) ? beyond_yaw : 0;
-    } else {
-        // not firing: everything but the pitch limits is the lock's; this tick's pull is the lead for a shot next
-        keep_pitch = limit ? d_pitch : 0;
-        g_lead_pitch = std::clamp(d_pitch - keep_pitch, -kMaxLead, kMaxLead);
-        g_lead_yaw = std::clamp(d_yaw, -kMaxLead, kMaxLead);
-    }
-    g_aim_pitch += uint32_t(keep_pitch + recoil_pitch);
-    g_aim_yaw += uint32_t(keep_yaw + recoil_yaw);
-    // the correction, to the controller and to the camera built from it
-    uint32_t fix_pitch = g_aim_pitch - X86_MEM32(view), fix_yaw = g_aim_yaw - X86_MEM32(view + 4);
-    X86_MEM32(view) = g_aim_pitch;
-    X86_MEM32(view + 4) = g_aim_yaw;
-    X86_MEM32(node + kNodeRotation) = X86_MEM32(node + kNodeRotation) + fix_pitch;
-    X86_MEM32(node + kNodeRotation + 4) = X86_MEM32(node + kNodeRotation + 4) + fix_yaw;
+    if (!view || g_use.offset != 0x124 || !Readable(view, 8)) return;
+    int32_t p = 0, y = 0;
+    RecoilTurn(base, view - 0x124, p, y);
+    if (!p && !y) return;
+    X86_MEM32(view) = X86_MEM32(view) + uint32_t(p);
+    X86_MEM32(view + 4) = X86_MEM32(view + 4) + uint32_t(y);
+    X86_MEM32(node + kNodeRotation) = X86_MEM32(node + kNodeRotation) + uint32_t(p);
+    X86_MEM32(node + kNodeRotation + 4) = X86_MEM32(node + kNodeRotation + 4) + uint32_t(y);
 }
 
 // --- Free Look (key action "Free Look", Alt): held, the mouse turns the camera alone, the aim (the controller's
@@ -372,6 +302,11 @@ X86_FUNC(sub_002F4D00) {
     DrawDistanceFrame(base, player);  // drawdistance.cpp: Grass Distance
     bool paused = GamePaused(base, player);
     if (gpu::screen2d::Frame3D() && !paused) LookSpringDefault(ctx, base, X86_MEM32(player + 0x34));  // below
+    // the game's Game Options and the overlay's rows kept the same, in menus and in play (below)
+    if (uint32_t c = X86_MEM32(player + 0x34)) {
+        uint32_t options = PlayerOptions(ctx, c);
+        if (options && Readable(options + 0x84, 1)) GameOptionsSync(base, options);
+    }
     input::SetGameMenu(!gpu::screen2d::Frame3D() || paused);
     MenusPaused(paused);  // menus.cpp: Escape closes the pause menu from its first page
     // the button icons follow the device used last: the keyboard's and mouse's (textures\replacement\@keyboard\,
@@ -380,35 +315,10 @@ X86_FUNC(sub_002F4D00) {
     bool typing = MenusNameEntry();
     gpu::texturedumper::SetPackGroup("keyboard", !input::UsingPad() && !typing);
     gpu::texturedumper::SetPackGroup("typing", !input::UsingPad() && typing);
-    // Aim Assist off (aim_assist.cpp): 0, 1 the lock's pull taken out, 2 the same while firing
-    int undo = AimAssist(base, player);
+    AimAssist(base, player);  // aim_assist.cpp: a target held, for Target Zoom
     uint32_t view_obj = g_found ? X86_MEM32(player + g_use.field) : 0;
     uint32_t view = view_obj && Readable(view_obj + g_use.offset, 8) ? view_obj + g_use.offset : 0;
-    g_mode = view ? undo : 0;
-    if (!g_mode || g_aim_at != view) g_lead_pitch = g_lead_yaw = 0;
-    // before the tick: the view at the player's aim, firing turned away from the target by the pull the last tick
-    // made, so the shot leaves along the sights
-    if (g_mode && g_aim_at == view) {
-        int32_t lp = g_mode == 2 ? g_lead_pitch : 0, ly = g_mode == 2 ? g_lead_yaw : 0;
-        X86_MEM32(view) = g_aim_pitch - uint32_t(lp);
-        X86_MEM32(view + 4) = g_aim_yaw - uint32_t(ly);
-    }
-    // the view as this hook leaves it (the mouse's turn in it) is what the tick starts from; the aim is that, with
-    // the lead taken back out
-    struct Leave {
-        uint8_t* base;
-        uint32_t view;
-        ~Leave() {
-            g_pre_at = view;
-            if (!view) return;
-            g_pre_pitch = X86_MEM32(view);
-            g_pre_yaw = X86_MEM32(view + 4);
-            int32_t lp = g_mode == 2 ? g_lead_pitch : 0, ly = g_mode == 2 ? g_lead_yaw : 0;
-            g_aim_pitch = g_pre_pitch + uint32_t(lp);
-            g_aim_yaw = g_pre_yaw + uint32_t(ly);
-            g_aim_at = view;
-        }
-    } leave{base, view};
+    g_pre_at = view;  // the Rotation the tick turns: the recoil turns it after (AimAfterTick)
 
     // the find in use: did the camera follow the last write
     bool fresh = g_cam.fresh;
@@ -504,6 +414,50 @@ void LookSpringDefault(X86Context& ctx, uint8_t* base, uint32_t controller) {
     LOGR("look spring: off by default (the player's options %08X), noted in the settings", options);
 }
 
+// --- The game's Game Options as overlay rows (user, 2026-11-14): the player's options object's +0x84 holds them a bit
+// each, not in the menu's order: Auto Sighting 0x01, Acquisition Icon 0x08 (each found by toggling it in the menu and
+// watching the byte; 0x3F with all on). Auto Sighting off stops the lock's pull
+// and snapping at the source, which our undoing of it never fully matched; the Acquisition Icon is the red dot over a
+// target, off by choice with Target Zoom off (the zoom moved, the dot is far from the enemy). Both ways: a change in
+// the overlay is written into the option, one in the game's menu or by a profile loading comes back to the setting.
+// At first sight of an options object the setting is written to it.
+void GameOptionsSync(uint8_t* base, uint32_t options) {
+    constexpr uint32_t kFlags = 0x84;
+    struct Row {
+        uint8_t bit;
+        bool app::Settings::*setting;
+        const char* name;
+    };
+    static const Row kRows[] = {{0x01, &app::Settings::aim_assist, "Auto Sighting"},
+                                {0x08, &app::Settings::acquisition_icon, "Acquisition Icon"}};
+    static uint32_t seen = 0;
+    static bool last_setting[2] = {}, last_game[2] = {};
+    app::Settings& s = app::Get();
+    uint8_t flags = X86_MEM8(options + kFlags);
+    static int logged = -1;  // the whole byte as it changes, to tell the menu's options apart
+    if (flags != logged) LOGR("game options: flags %02X (options %08X)", flags, options);
+    logged = flags;
+    bool first = options != seen;
+    seen = options;
+    bool save = false;
+    for (int i = 0; i < 2; i++) {
+        bool& setting = s.*kRows[i].setting;
+        bool game = (flags & kRows[i].bit) != 0;
+        if (first || setting != last_setting[i]) {  // the overlay's (or a new profile's first sight): into the game
+            if (game != setting) flags = setting ? uint8_t(flags | kRows[i].bit) : uint8_t(flags & ~kRows[i].bit);
+            if (game != setting) LOGR("game options: %s %s (the overlay's)", kRows[i].name, setting ? "on" : "off");
+        } else if (game != last_game[i]) {  // the game's menu: into the setting
+            setting = game;
+            save = true;
+            LOGR("game options: %s %s (the game's menu)", kRows[i].name, game ? "on" : "off");
+        }
+        last_setting[i] = setting;
+        last_game[i] = (flags & kRows[i].bit) != 0;
+    }
+    X86_MEM8(options + kFlags) = flags;
+    if (save) app::Save();
+}
+
 // --- Look Spring off for the keyboard and mouse. The game's Look Spring (its Controller options) eases the view back
 // level as the player moves while the look axes are idle: 0x1C26B, inside the controller's rotation update (0x1C240),
 // asks the player's options object (0x3DB80, thiscall on what ecx holds there) for it, +0x78 bit 2. The mouse turns the
@@ -513,11 +467,11 @@ X86_EXTERN_FUNC(__imp__sub_0001C26B);
 X86_FUNC(sub_0001C26B) {
     constexpr uint32_t kOptions = 0x3DB80, kSpringAt = 0x78;
     constexpr uint8_t kSpring = 0x02;
+    uint32_t options = kernel::CallGuest(ctx, kOptions, {});
     if (input::UsingPad()) {
         __imp__sub_0001C26B(ctx, base);
         return;
     }
-    uint32_t options = kernel::CallGuest(ctx, kOptions, {});
     bool on = options && (X86_MEM8(options + kSpringAt) & kSpring);
     if (on) X86_MEM8(options + kSpringAt) &= uint8_t(~kSpring);
     __imp__sub_0001C26B(ctx, base);

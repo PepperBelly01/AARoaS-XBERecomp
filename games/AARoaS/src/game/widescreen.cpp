@@ -36,7 +36,7 @@ X86_FUNC(sub_001F3E50) {
     g_world = frame != g_frame;
     g_frame = frame;
     if (!g_world && app::Get().ambient_occlusion) d3d::Occlusion();
-    if (g_world) AimAfterTick(base, ctx.ecx);     // mouse.cpp: Aim Assist off, the lock's pull taken back out
+    if (g_world) AimAfterTick(base, ctx.ecx);     // mouse.cpp: the weapon's recoil turned (recoil.cpp)
     if (g_world) NoteWorldCamera(base, ctx.ecx);  // mouse.cpp: the view rotation for direct mouse look
     if (g_world) g_node_fov = X86_MEMF32(ctx.ecx + 0x1EC);  // the node's FOV, for the zoom hold
     FreeLookCamera(base, ctx.ecx, g_world);  // mouse.cpp: Free Look turns both cameras, the aim stays
@@ -54,7 +54,7 @@ X86_FUNC(sub_001F1AC0) {
     // shown 16:9: the same height of view, 16:9 / 4:3 as much across
     if (app::Widescreen()) X86_MEMF32(matrix) *= 0.75f;
     if (g_world) {
-        // Aim Assist off: the game's zoom onto a held target is not shown (aim_assist.cpp)
+        // Target Zoom off: the game's zoom onto a held target is not shown (aim_assist.cpp)
         float r = ZoomHold(g_node_fov);
         X86_MEMF32(matrix) *= r;
         X86_MEMF32(matrix + 0x14) *= r;

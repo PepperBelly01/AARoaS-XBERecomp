@@ -1,14 +1,8 @@
-// Aim Assist off: the game's aim lock (AACPlayerInput's TweakMe) and its auto zoom, taken back out.
-//
-// What the lock does, measured in play: while the controller holds a target (SelectedTarget, the red dot's, or
-// LockTarget) its tick turns the controller's Rotation toward it, up to ~700 units (4 degrees) a tick, harder for
-// nearer targets, inside a cone around each (the Observation skill likely sets its size); it never offsets the camera
-// alone. Clearing LockTarget did nothing (the tick picks again). So the aim is kept apart from the view (mouse.cpp):
-// the tick starts from the player's true aim, so the game picks its target fairly, and after it, as the frame's camera
-// is set up, the pull is taken back out of the controller and the camera. Firing, the aim is turned away by the
-// pull ahead of the tick instead, so the shot leaves along the sights; the weapon's kick is kept. With a target held
-// the game also zooms in by its distance (AutoZoom): shown with Auto Zoom on, else the world is drawn at the angle it
-// had before; the mouse's turn follows the angle from before the zoom either way (ZoomHold).
+// Target Zoom: with a target held (SelectedTarget, the red dot's, or LockTarget, on the AACPlayerController) the game
+// zooms in by its distance (AutoZoom), Auto Sighting on or off. Shown with Target Zoom on, else the world is drawn at
+// the angle it had before; the mouse's turn follows the angle from before the zoom either way (ZoomHold). The game's
+// aim help (the lock's pull toward the target, its snapping) is its own Auto Sighting option, which the overlay's
+// Auto-Sighting row sets (mouse.cpp); this file's first way, undoing the pull after each tick, was removed 2026-11-14.
 //
 // This build keeps variable names but not function names, so the variables are found through the engine's own
 // reflection: names are entries in memory (Index, Flags, HashNext, then the text), objects the usual UObject layout
@@ -43,7 +37,6 @@ namespace {
 constexpr uint32_t kObjName = 0x20, kObjClass = 0x24, kSuper = 0x2C, kChildren = 0x38;
 constexpr uint32_t kNextCandidates[] = {0x30, 0x28, 0x2C};  // UField::Next: the first that walks
 constexpr uint32_t kRotationOffset = 0x124;
-constexpr bool kSkipLockTurn = true;  // Aim Assist off: the lock's turn not made (false: undone after the tick, mouse.cpp)
 
 bool Readable(uint32_t a, uint32_t n) { return a >= 0x10000 && mem::IsCommitted(a) && mem::IsCommitted(a + n - 1); }
 
@@ -177,30 +170,7 @@ bool Locate(uint8_t* base, uint32_t controller, Var& v) {
     return false;
 }
 
-// fire held, or let go of within the last moment (the kick lands within a few ticks of the shot; any longer and the
-// lock's pull toward the next target came through as kick, a rubber band after each shot)
-bool Firing() {
-    static ULONGLONG last = 0;
-    ULONGLONG now = GetTickCount64();
-    for (size_t i = 0; i < app::kGame.key_actions.size() && i < app::Get().keys.size(); i++) {
-        const input::KeyAction& a = app::kGame.key_actions[i];
-        if (a.target != input::PadTarget::Analog || a.index != 7) continue;  // right trigger: Fire
-        for (uint16_t k : app::Get().keys[i])
-            if (k && k < 0x100 && (GetAsyncKeyState(k) & 0x8000)) last = now;
-    }
-    input::Pad pad = input::Poll(0);
-    if (pad.analog[7] > 30) last = now;
-    return last && now - last < 150;  // the kick lands within a few ticks of the shot
-}
-
-// the look stick in use: its turning is the player's own
-bool StickLooks() {
-    input::Pad pad = input::Poll(0);
-    return std::abs(int(pad.rx)) > 8000 || std::abs(int(pad.ry)) > 8000;
-}
-
 bool g_target = false;     // the game held a target (the red dot's, or its lock) before this tick
-bool g_recent = false;     // held one, or within the last second
 float g_base_fov = 0;      // the world camera's angle before a target was taken
 float g_shown_fov = 0;     // the angle the world is drawn at
 ULONGLONG g_target_seen = 0;
@@ -358,15 +328,17 @@ bool GamePaused(uint8_t* base, uint32_t viewport) {
 // the angle the world is drawn at, for the mouse's turn (0 before the first frame)
 float ShownFov() { return g_shown_fov; }
 
-// mouse.cpp's UpdateInput hook, each frame with the player viewport, before the game's tick: 0 nothing, 1 undo the
-// last tick's turn, 2 the same while firing (the kick kept)
-int AimAssist(uint8_t* base, uint32_t viewport) {
+// mouse.cpp's UpdateInput hook, each frame with the player viewport, before the game's tick: whether the game holds
+// a target, for Target Zoom (ZoomHold). The game's aim help itself is its own Auto Sighting option (mouse.cpp
+// AutoSightingSync): turned off there it neither pulls nor snaps, which undoing its pull after the tick (the first
+// way here, removed 2026-11-14) never fully matched
+void AimAssist(uint8_t* base, uint32_t viewport) {
     g_target = false;
     const app::Settings& s = app::Get();
-    // the game as it was (the lock, its zoom, the turn slowed fully by it): nothing to watch
-    if (s.aim_assist && s.auto_zoom && s.zoom_sensitivity && s.zoom_sensitivity_percent >= 100) return 0;
+    // the game's zoom shown and the turn slowed fully by it: nothing to watch
+    if (s.auto_zoom && s.zoom_sensitivity && s.zoom_sensitivity_percent >= 100) return;
     uint32_t controller = X86_MEM32(viewport + 0x34);
-    if (!Readable(controller, 0x200) || !Calibrate(base, controller)) return 0;
+    if (!Readable(controller, 0x200) || !Calibrate(base, controller)) return;
 
     static uint32_t seen_controller = 0;
     static Var lock{"LockTarget"}, selected{"SelectedTarget"};
@@ -380,33 +352,7 @@ int AimAssist(uint8_t* base, uint32_t viewport) {
         LOGR("aim assist: controller %08X: LockTarget +0x%X, SelectedTarget +0x%X%s", controller, lock.offset,
              selected.offset, located ? "" : ", not both found on it: assist left on");
     }
-    if (!located) return 0;
-    // a target held, or let go of within the last second (the pull runs on a little past it); never in a cutscene,
-    // which has none, so its camera pans are left alone; nor while the look stick turns (its turning is the player's)
-    bool target = X86_MEM32(controller + lock.offset) || X86_MEM32(controller + selected.offset);
-    ULONGLONG now = GetTickCount64();
-    static ULONGLONG last_target = 0;
-    if (target) last_target = now;
-    g_target = target;
-    g_recent = last_target && now - last_target < 1000;
-    if (s.aim_assist || !g_recent || StickLooks()) return 0;  // the target is still watched for Auto Zoom
-    // the lock's turn is skipped where it is made (0x22520 below): nothing to undo after the tick. Undoing it there
-    // also undid the sway and the like, which reach the view in the same tick
-    if (kSkipLockTurn) return 0;
-    return Firing() ? 2 : 1;
-}
-
-// The lock's turn toward its target (thiscall: a rotation, delta time; ret 0x10), called only by AACPlayerInput's
-// lock (0x32DB0) after it picks the target (0x32CA0, kept: Auto Zoom and the red dot go by it). Aim Assist off: not
-// made at all
-X86_EXTERN_FUNC(__imp__sub_00022520);
-X86_FUNC(sub_00022520) {
-    if (kSkipLockTurn && !app::Get().aim_assist) {
-        static bool told = false;
-        if (!told) LOGR("aim assist: off, the lock's turn skipped");
-        told = true;
-        ctx.esp += 4 + 0x10;
-        return;
-    }
-    __imp__sub_00022520(ctx, base);
+    if (!located) return;
+    // a target held (the lock's, or the red dot's)
+    g_target = X86_MEM32(controller + lock.offset) || X86_MEM32(controller + selected.offset);
 }

@@ -105,6 +105,7 @@ void Load() {
     s.invert_mouse_x = t["invert_mouse_x"].value_or(s.invert_mouse_x);
     s.invert_mouse_y = t["invert_mouse_y"].value_or(s.invert_mouse_y);
     s.aim_assist = t["aim_assist"].value_or(s.aim_assist);
+    s.acquisition_icon = t["acquisition_icon"].value_or(s.acquisition_icon);
     s.auto_zoom = t["auto_zoom"].value_or(s.auto_zoom);
     s.zoom_sensitivity = t["zoom_sensitivity"].value_or(s.zoom_sensitivity);
     s.zoom_sensitivity_percent = std::clamp(t["zoom_sensitivity_percent"].value_or(s.zoom_sensitivity_percent), 10u, 100u);
@@ -169,6 +170,7 @@ toml::table Table() {
                   {"invert_mouse_x", s.invert_mouse_x},
                   {"invert_mouse_y", s.invert_mouse_y},
                   {"aim_assist", s.aim_assist},
+                  {"acquisition_icon", s.acquisition_icon},
                   {"auto_zoom", s.auto_zoom},
                   {"zoom_sensitivity", s.zoom_sensitivity},
                   {"zoom_sensitivity_percent", int64_t(s.zoom_sensitivity_percent)},

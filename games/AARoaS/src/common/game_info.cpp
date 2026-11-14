@@ -57,7 +57,8 @@ const app::GameInfo app::kGame = {
     .movement_modes = true,  // stance.cpp: Sprint and Lean, Hold or Toggle
     .grass_distance = true,  // drawdistance.cpp: Grass Distance
     .persistent_bodies = true,  // bodies.cpp
-    .weapon_tuning = true,  // tuning.cpp: weapon_tuning.ini over System\AACTuning.ini
+    // .weapon_tuning: tuning.cpp's Recoil System, tabled for a later version (the mouse trigger squeeze made it
+    // unneeded; user, 2026-11-13). Not offered, the game's own weapon values are used whatever the settings file says
     .radial_menu_analog = 3,  // the weapon wheel: Y held (Switch Weapon), picked with the left stick, the mouse here
     .patch_file = PatchGameText,  // text.cpp: the menus' text names keys, not buttons
     .load = nullptr,

@@ -38,7 +38,8 @@ struct Settings {
     // mouse look: times the mouse's raw counts, each axis (GameInfo::mouse_y_ratio evens out the game's own)
     float mouse_x = 1.0f, mouse_y = 1.0f;
     bool invert_mouse_x = false, invert_mouse_y = false;
-    bool aim_assist = true;  // the game's own aim lock or assist, for a game whose hooks honour it (GameInfo::aim_assist)
+    bool aim_assist = true;  // the game's own aim help: this game's Auto Sighting option (GameInfo::aim_assist)
+    bool acquisition_icon = true;  // the game's marker over a target: this game's Acquisition Icon option (GameInfo::aim_assist)
     bool auto_zoom = true;   // the game's zoom onto a target shown, with aim assist on or off (GameInfo::aim_assist)
     // with auto_zoom: the mouse's turn slowed by the zoom onto a target, zoom_sensitivity_percent of the way to keeping
     // the picture's speed on screen (the game as it was: on, 100); off, the turn keeps its speed from before the zoom

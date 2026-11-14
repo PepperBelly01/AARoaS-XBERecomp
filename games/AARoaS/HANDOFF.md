@@ -263,29 +263,28 @@ automatically through `../../cmake/XbeRecomp.cmake`; no `sdk\` copy is needed.
   no nearer (a disabled row: the menu skips it and wraps), or 3 unanswered, gives the row up until the cursor goes
   to another (it looped endlessly). States kept per item, so a page left and come back to needs no new message; a
   page whose selection was never told gets one Down when the mouse moves. Could be faster: the steps are the limit.
-- **Aim Assist and Target Zoom toggles** (`src\game\aim_assist.cpp`, the after-tick part in mouse.cpp; settings
-  `aim_assist`, `auto_zoom`; both in the Mouse and Keyboard and Controller tabs, any combination; user confirmed,
-  "especially in firefights"). Findings:
-  - This Xbox build keeps variable names in memory but not function names (TweakMe, SetLockTarget are gone). Name
-    entries: index, flags 0, hash link, text (12 bytes in); objects: +0x20 name, +0x24 class; classes: +0x2C super,
-    +0x38 first field, fields chained at +0x30, a property's byte offset at +0x44 (learned from Actor.Rotation, 0x124).
-    The same text sits elsewhere in memory too: each candidate index is tried on the class chain.
-  - The lock: SelectedTarget (+0xA0C, the red dot's) and LockTarget (+0xA04) on the AACPlayerController. While one is
-    held the tick turns Rotation toward it, up to ~700 units (4 deg) a tick, harder when near, inside a cone (the
-    Observation skill likely sizes it). Not a camera offset. Clearing LockTarget did nothing.
-  - What works: the tick starts from the player's true aim (so the game picks targets fairly; leading the aim before
-    the tick made it flip between two targets: judder), and after the tick, at the world camera's UpdateMatrices, the
-    pull is taken out of Rotation and the camera node (+0x1E0). Firing (trigger held + 150 ms; longer let the pull
-    through as kick: a rubber band), the aim is led by the last non-firing tick's pull so shots leave along the sights;
-    the kick up and small yaw jolt (300) are kept, the settle back down is the player's. Jumps (2000+) and pitch
-    limits are kept. Only while a target is held or within 1 s: undoing always broke cutscene pans.
-  - Target Zoom: with a target the game zooms by its distance (AutoZoom: FOV per target). Off, the projection is
-    drawn at the angle from before the target. The mouse's turn follows that angle either way (it slowed with the
-    zoom: felt like sticking). Zoom Sensitivity (on/off, Strength 10-100%, under Target Zoom) slows it by
-    (zoomed / before)^strength instead; off by default (the original game is on at 100%). User confirmed.
+- **Auto-Sighting, Acquisition Icon and Target Zoom** (overlay rows in the Mouse and Keyboard and Controller tabs;
+  mouse.cpp GameOptionsSync, aim_assist.cpp; user confirmed 2026-11-14):
+  - Auto-Sighting (Settings::aim_assist) and Acquisition Icon (Settings::acquisition_icon) are the game's own Game
+    Options: the player's options object (PlayerOptions: controller -> 0xEF670 -> 0x1AF00 -> 0x3DB80) +0x84, one bit
+    each, not in the menu's order: Auto Sighting 0x01, Acquisition Icon 0x08 (0x3F all on; found by toggling each in
+    the menu). Synced both ways every frame from the UpdateInput hook (menus too): an overlay change is written into
+    the option, a menu change or a profile loading comes back into the setting; at first sight the setting wins.
+    Auto Sighting off stops the lock's pull and snapping at the source (user, after trying it on the Xbox too).
+  - Removed 2026-11-14: our own Aim Assist off, which undid the lock's pull after each tick (aim led while firing,
+    the lock's turn 0x22520 skipped). The game's option does it fully. The lock's 30 Hz stepping (recoil.cpp
+    0x32DB0) stays, for Auto Sighting on.
+  - Target Zoom: with a target held (SelectedTarget +0xA0C, the red dot's, or LockTarget +0xA04 on the
+    AACPlayerController, found by name) the game zooms by its distance, Auto Sighting on or off. Off, the projection
+    is drawn at the angle from before the target (ZoomHold). The mouse's turn follows that angle either way. Zoom
+    Sensitivity (on/off, Strength 10-100%) slows it by (zoomed / before)^strength; off by default. User confirmed.
+    Reported 2026-11-14: with the M249 the zoom showed with Target Zoom off (not re-checked since the rework).
+  - This build keeps variable names in memory but not function names. Name entries: index, flags 0, hash link, text;
+    objects: +0x20 name, +0x24 class; classes: +0x2C super, +0x38 first field, fields chained at +0x30, a property's
+    byte offset at +0x44 (learned from Actor.Rotation, 0x124).
   - Release builds drop LOGI: diagnostics must use LOGR (one session of data was lost to this).
-  - The rare snap to a survivor after a kill (Aim Assist off) came from the undoing's firing window; the lock's
-    turn is now skipped at the source (Frame rate, below), so watch whether it is gone.
+- **Recoil System** tabled 2026-11-14 (GameInfo::weapon_tuning not set: no row, the game's values always): the mouse
+  trigger squeeze made it unneeded. Its code (tuning.cpp, files.cpp's patching from the disc) stays for later.
 - **Widescreen** (`src\game\widescreen.cpp`): FCameraSceneNode::UpdateMatrices 0x1F3E50 builds the projection with
   FPerspectiveMatrix 0x1F1AC0 (call returns to 0x1F42F7); M[0][0] *= 0.75 on 16:9 (Hor+).
 - **Field of View**: the world camera (75 deg, first UpdateMatrices of each Swap) gets M00 and M11 / FovScale; the
