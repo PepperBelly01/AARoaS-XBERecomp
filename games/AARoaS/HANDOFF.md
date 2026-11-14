@@ -278,7 +278,16 @@ automatically through `../../cmake/XbeRecomp.cmake`; no `sdk\` copy is needed.
     AACPlayerController, found by name) the game zooms by its distance, Auto Sighting on or off. Off, the projection
     is drawn at the angle from before the target (ZoomHold). The mouse's turn follows that angle either way. Zoom
     Sensitivity (on/off, Strength 10-100%) slows it by (zoomed / before)^strength; off by default. User confirmed.
-    Reported 2026-11-14: with the M249 the zoom showed with Target Zoom off (not re-checked since the rework).
+    OPEN (2026-11-14, M249, Target Zoom off): the zoom flips and sometimes sticks. Probed: the M249's sights (and its
+    bipod, the sighted pose) zoom to 45 deg (AACTuning.ini WP_Sighted fZoomFOV=45; the M16A2's 55), no target
+    reported; a target held zooms on to ~25 deg. ZoomHold's flaw: with a target it shows the angle from before the
+    target (usually 75: the sights' own zoom hidden too, hence the flipping), and a target taken mid-zoom freezes
+    that base (stuck at 45 after the bipod is lifted, until the target is lost). DesiredFOV, FovAngle, DefaultFOV,
+    AutoZoom are not in the name table (native only); ZoomAmount, ZoomRate are, not on the controller. Planned fix
+    (not built): with a target held or let go within 1.5 s, show max(game fov, wanted), wanted = the weapon's sights
+    angle while aiming (pawn +0x601 == 3; learned per weapon (Pawn.Weapon) as the lowest angle while aiming with no
+    target for 1.5 s; unknown yet: the game's angle) else the normal angle; only zooming deeper is held back, so
+    nothing freezes. g_shown_fov = that for the mouse's turn.
   - This build keeps variable names in memory but not function names. Name entries: index, flags 0, hash link, text;
     objects: +0x20 name, +0x24 class; classes: +0x2C super, +0x38 first field, fields chained at +0x30, a property's
     byte offset at +0x44 (learned from Actor.Rotation, 0x124).
