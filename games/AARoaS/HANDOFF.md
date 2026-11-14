@@ -288,6 +288,11 @@ automatically through `../../cmake/XbeRecomp.cmake`; no `sdk\` copy is needed.
     angle while aiming (pawn +0x601 == 3; learned per weapon (Pawn.Weapon) as the lowest angle while aiming with no
     target for 1.5 s; unknown yet: the game's angle) else the normal angle; only zooming deeper is held back, so
     nothing freezes. g_shown_fov = that for the mouse's turn.
+    Tried 2026-11-14 and reverted (user: "still randomly decides the zoom level", either the default angle when not
+    aiming or zoomed): +0x601 == 3 is likely not a reliable "aiming" (3 is also firing; the sights may not set it),
+    and the learned angle depends on the order the player aims. Next idea: tell the target's zoom apart by the game's
+    own call that sets the target zoom (find the code writing the camera FOV toward the target's angle) rather than
+    by angles and states.
   - This build keeps variable names in memory but not function names. Name entries: index, flags 0, hash link, text;
     objects: +0x20 name, +0x24 class; classes: +0x2C super, +0x38 first field, fields chained at +0x30, a property's
     byte offset at +0x44 (learned from Actor.Rotation, 0x124).
