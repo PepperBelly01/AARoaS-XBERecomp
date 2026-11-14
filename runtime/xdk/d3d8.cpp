@@ -12,10 +12,12 @@
 #include <atomic>
 #include <chrono>
 #include <map>
+#include <memory>
 #include <string>
 #include <thread>
 #include <unordered_map>
 #include <unordered_set>
+#include <vector>
 
 #include "app/app.h"
 #include "core/diag.h"
@@ -582,9 +584,14 @@ void ApplyRenderTarget(X86Context& ctx, uint32_t rt, uint32_t zs) {
 }
 }  // namespace
 
+namespace {
+void ReleaseParticles();  // below: the particles held from the occlusion drawn
+}  // namespace
+
 HLE_STDCALL(D3DDevice_SetRenderTarget, 2) {
     std::lock_guard<std::recursive_mutex> lock(g_lock);
     uint32_t rt = a[0] ? a[0] : Dev(kDevRenderTarget);
+    ReleaseParticles();  // held particles belong to the target they were drawn for
     ApplyRenderTarget(ctx, rt, a[1]);
     // SetRenderTarget resets the viewport to the whole target
     uint32_t w, h;
@@ -597,6 +604,7 @@ HLE_STDCALL(D3DDevice_SetRenderTarget, 2) {
 // (rt, zs, flags): the surfaces alone, the viewport stays as it was
 HLE_STDCALL(D3DDevice_SetRenderTargetFast, 3) {
     std::lock_guard<std::recursive_mutex> lock(g_lock);
+    ReleaseParticles();
     ApplyRenderTarget(ctx, a[0], a[1]);
     return 0;
 }
@@ -635,11 +643,24 @@ struct ArmedOcclusion {
 };
 ArmedOcclusion g_ao;
 uint32_t g_ao_clears = 0;             // depth clears since arming
-// blended draws writing depth since arming (vegetation: hundreds a frame): particles drawn before them are a muzzle
-// flash or sparks mid world, not the smoke at its end; AO there left the vegetation without it, flickering with fire
-uint32_t g_ao_blended = 0;
-constexpr uint32_t kVegetationDraws = 16;
 constexpr uint64_t kWorldDraws = 48;  // draws since arming that make a world, not a sky pass ahead of it
+
+// Particles held back. Smoke and dust (DrawVerticesUP, blended, not writing depth, not additive) must not have AO
+// under them, but every solid and alpha tested draw must have it, and the order varies by map: smoke before the last
+// depth writing draws (a corridor cutscene), a muzzle smoke puff before the desert's bushes. Picking the moment from
+// the order failed on each in turn (2026-11-13). So while the world is drawn they are kept, with their state and
+// vertices, and drawn after the occlusion (or before anything that must come after them: a depth clear, a screen
+// space draw, another target, the frame's end), in their order. Additive ones (flashes, sparks) go at once: AO under
+// added light does not show.
+struct HeldDraw {
+    gpu::State state;
+    uint32_t prim = 0, count = 0, stride = 0;
+    std::vector<uint8_t> vertices;
+    std::vector<uint16_t> indices;
+};
+std::vector<std::unique_ptr<HeldDraw>> g_held;  // kept between frames, the first g_held_n in use
+size_t g_held_n = 0;
+uint32_t UpVertices(const void* src, uint32_t bytes);  // below
 
 // F9: one frame's draws and depth clears into the log, as runs (letters at BeforeDraw),
 // Z a depth clear, A ambient occlusion, C the world camera armed
@@ -666,17 +687,42 @@ void Trace(char c) {
 
 void RunOcclusion();
 
-// Each draw, before it goes: traced, and ambient occlusion goes in ahead of the first particle or screen space draw
-// after the world when no depth clear (for the weapon) has taken it yet (a frame without a weapon in view).
-// Particles (smoke, dust, sparks) are DrawVerticesUP draws, blended and not writing depth, the last of the world: the
-// occlusion goes in ahead of the first of them so they are not darkened by what they cover (smoke showed the outlines
-// of what was behind it)
+// the held particles drawn, in their order, each from its own copy of the vertices
+// The render thread sends a draw's simple render states only where they were marked written since its last (blend,
+// depth, texture stages): a held draw's are older, so all are marked for each, and again for the next live draw after
+// them. Without that the particles took the world's last blend and textures (hard edged, wrong pictures, black
+// triangles; user, 2026-11-13).
+void ReleaseParticles() {
+    if (!g_held_n) return;
+    for (size_t i = 0; i < g_held_n && g_backend; i++) {
+        HeldDraw& h = *g_held[i];
+        h.state.streams[0] = {UpVertices(h.vertices.data(), uint32_t(h.vertices.size())), h.stride};
+        gpu::MarkAllSimple();
+        g_backend->Draw(h.state, h.prim, 0, h.count,
+                        h.indices.empty() ? nullptr : reinterpret_cast<const uint8_t*>(h.indices.data()));
+    }
+    g_held_n = 0;
+    gpu::MarkAllSimple();
+}
+
+// a particle draw to hold until the occlusion: smoke or dust while the armed world is drawn
+bool HoldsParticle() {
+    bool blend = g_state.simple[gpu::kMBlendEnable / 4] != 0, zwrite = g_state.simple[gpu::kMZWriteEnable / 4] != 0;
+    bool additive = g_state.simple[gpu::kMDestBlend / 4] == 1;  // D3DBLEND_ONE: light added
+    return g_backend && blend && !zwrite && !additive && !gpu::IsPretransformed(g_state) && g_ao.armed &&
+           g_ao.frame == g_presents.load() && g_draws - g_ao.draws >= kWorldDraws;
+}
+
+// Each draw, before it goes: traced, and ambient occlusion goes in ahead of the first screen space draw after the
+// world when no depth clear (for the weapon) has taken it yet (a frame without a weapon in view); the particles held
+// meanwhile are drawn after it
 void BeforeDraw(bool up) {
     bool screen = gpu::IsPretransformed(g_state);
     bool blend = g_state.simple[gpu::kMBlendEnable / 4] != 0, zwrite = g_state.simple[gpu::kMZWriteEnable / 4] != 0;
-    if (blend && zwrite && !up && !screen) g_ao_blended++;
-    bool particle = up && blend && !zwrite && !screen && g_ao_blended >= kVegetationDraws;
-    if ((screen || particle) && g_ao.armed && g_draws - g_ao.draws >= kWorldDraws) RunOcclusion();
+    if (screen) {
+        if (g_ao.armed && g_draws - g_ao.draws >= kWorldDraws) RunOcclusion();
+        ReleaseParticles();
+    }
     if (!g_tracing) return;
     // vertex buffer draws: o opaque, B blended writing depth, b blended not, n neither; DrawVerticesUP's (particles
     // and the like): u blended not writing depth, U any other; h screen space
@@ -746,10 +792,12 @@ void TraceSwap() {
 }
 
 void RunOcclusion() {
-    if (!g_ao.armed || g_ao.frame != g_presents.load() || !g_backend) return;
-    g_ao.armed = false;
-    Trace('A');
-    g_backend->Occlusion(g_state, g_ao.p);
+    if (g_ao.armed && g_ao.frame == g_presents.load() && g_backend) {
+        g_ao.armed = false;
+        Trace('A');
+        g_backend->Occlusion(g_state, g_ao.p);
+    }
+    ReleaseParticles();  // over the occluded world
 }
 
 // The video overlay (UpdateOverlay, used by XMV movies): the console scans it out over the frame buffer. Its latest
@@ -782,6 +830,7 @@ HLE_STDCALL(D3DDevice_Swap, 1) {
         app::FinishHandover();
     }
     std::lock_guard<std::recursive_mutex> lock(g_lock);
+    ReleaseParticles();  // none left behind into the next frame
     TraceSwap();
     g_presents++;
     // the kept display is shown until the title presents its own
@@ -820,7 +869,6 @@ void ArmOcclusion(const float* m, bool gtao) {
     if (!g_backend || m[11] != 1.0f || m[15] != 0.0f || !m[0] || !m[5]) return;
     g_ao = {true, g_presents.load(), g_draws, {1 / m[0], 1 / m[5], m[8], m[9], m[14], m[10], 0, 0, 0, gtao ? 1.0f : 0.0f}};
     g_ao_clears = 0;
-    g_ao_blended = 0;
     Trace('C');
 }
 
@@ -877,6 +925,7 @@ HLE_STDCALL(D3DDevice_Clear, 6) {
         g_ao_clears++;
         if (g_ao.armed && g_draws - g_ao.draws >= kWorldDraws) RunOcclusion();
     }
+    ReleaseParticles();  // any clear: they belong to what was drawn before it
     if (g_backend) g_backend->Clear(g_state, a[0], rects, a[2], a[3], ArgF(a, 4), a[5]);
     return 0;
 }
@@ -1477,6 +1526,19 @@ void DrawUp(uint32_t prim, uint32_t count, const void* vertices, uint32_t stride
     g_draws++;
     BeforeDraw(true);
     ReportScreenBox(0, count, indices);
+    if (HoldsParticle()) {  // smoke or dust over the world: drawn after the occlusion (ReleaseParticles)
+        if (g_held_n == g_held.size()) g_held.push_back(std::make_unique<HeldDraw>());
+        HeldDraw& h = *g_held[g_held_n++];
+        h.state = g_state;
+        h.prim = prim;
+        h.count = count;
+        h.stride = stride;
+        h.vertices.assign(static_cast<const uint8_t*>(vertices), static_cast<const uint8_t*>(vertices) + used * stride);
+        if (indices) h.indices.assign(indices, indices + count);
+        else h.indices.clear();
+        g_state.streams[0] = stream;
+        return;
+    }
     g_backend->Draw(g_state, prim, 0, count, reinterpret_cast<const uint8_t*>(indices));
     g_state.streams[0] = stream;
 }

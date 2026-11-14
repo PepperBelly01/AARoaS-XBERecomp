@@ -326,13 +326,17 @@ automatically through `../../cmake/XbeRecomp.cmake`; no `sdk\` copy is needed.
 - **Ambient occlusion** (SSAO/GTAO, user confirmed): kAoHlsl in d3d12.cpp from the reference, depth reversed (z
   buffer: view z = -m32 / (depth - (1 - m22)) from the camera projection; w buffer from the draws' zparams). Armed
   in widescreen.cpp with the world camera's projection (d3d::ArmOcclusion); d3d8.cpp runs it, once 48+ draws are
-  in, before the first of: a particle draw (DrawVerticesUP, blended, no depth write: smoke showed AO through it), a
-  screen space draw (frames with no weapon have no clear after the world: AO dropped out), the depth clear before
-  the weapon; else at the second camera (cutscenes). A "second depth clear" rule was tried and ran it on the sky
-  pass. F9 logs one frame's draw order ("frame trace:"), letters at BeforeDraw. AO Strength (default 50%: the user
-  found 50 to 75% right, more too much). User confirmed the smoke and drop out fixes. A particle only counts once
-  16+ blended depth writing draws (vegetation) are in: a muzzle flash before the vegetation ran AO early and the
-  vegetation flickered with gunfire (user confirmed fixed).
+  in, before the first of: a screen space draw (frames with no weapon have no clear after the world), the depth clear
+  before the weapon; else at the second camera (cutscenes). A "second depth clear" rule was tried and ran it on the
+  sky pass. F9 logs one frame's draw order ("frame trace:"), letters at BeforeDraw. AO Strength (default 50%: the
+  user found 50 to 75% right, more too much).
+  Particles held back (user confirmed the tunnel smoke, 2026-11-13): smoke and dust (DrawVerticesUP, blended, no
+  depth write, not additive) drawn while the armed world draws are kept (HeldDraw: state and vertices) and drawn
+  after the occlusion (ReleaseParticles), or before a depth clear, screen space draw, target change or Swap. Picking
+  AO's moment from the order (before the first particle, then once 16 vegetation draws were in) failed per map: the
+  tunnel drew smoke before its last depth writers, the desert a muzzle puff before its bushes. Additive draws
+  (flashes) go at once. A replayed draw marks all simple states (gpu::MarkAllSimple): the render thread sends only
+  marked ones, and without it the smoke took the world's blend and textures. Desert bush flicker not re-checked.
   Fog (user confirmed 2026-11-13, a snowy mission): AO showed through distance fog. The world draws' fog (start, end,
   density, mode, recorded in UploadConstants with the scene depth) goes to occlusion_apply, which fades the darkening
   by the same fog factor the surfaces get. This game: linear, 1000 to 10000. Vertex program fog (no distances) is
@@ -401,6 +405,8 @@ automatically through `../../cmake/XbeRecomp.cmake`; no `sdk\` copy is needed.
     220, speed ~330). Hold: a click when held and moving and not sprinting (retried each 400 ms); let go (or aiming),
     the stick eases to a slow walk for 250 ms, then nothing for a moment (600 ms at most). Sprinting or wanting it,
     the stick goes all the way (Slow Walk's half ended the sprint). Sprint from a lean: upright first, then the sprint.
+    Crouch (or a double tap's prone) with Sprint held: Hold's sprint is blocked (g_sprint_blocked) until Sprint is
+    pressed again or let go; it had clicked the sprint back on at once and stood the player up (user confirmed).
   - Lean (D-pad left/right, Q E): LeanDirection +0x578, 0 left, 1 upright, 2 right; the other way stands up; walking
     fast ends it. Toggle: the same key again sends the other way; Hold: leaning with the key up sends it. A lean asked
     for, and while leaning, the stick goes no further than a slow walk (as for a crouch). From a sprint the game spends

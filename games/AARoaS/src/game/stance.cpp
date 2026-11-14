@@ -130,6 +130,9 @@ constexpr uint32_t kSprintingBits = 0x07;  // in bIsSprinting's word: 0x08 walki
 constexpr ULONGLONG kLeanHold = 500;   // ms the stick stays at a slow walk for a lean asked for, as for a crouch
 ULONGLONG g_lean_until = 0;
 uint16_t g_lean_queued = 0;  // a lean pressed while sprinting: the game spent that press ending the sprint, sent again
+// Sprint on Hold, crouch (or prone, a double tap) pressed: the held sprint is off until the sprint key is let go or
+// pressed again. Hold started the game's sprint again at once, which stood the player up (user, 2026-11-13)
+bool g_sprint_blocked = false;
 constexpr float kLeanReach = 0.5f;    // of the stick while leaning: the slow walk's
 uint32_t g_ground_at = 0, g_lean_at = 0, g_sprint_at = 0;
 uint16_t g_raw_last = 0, g_send = 0;
@@ -183,8 +186,9 @@ static void SprintLean(input::Pad& pad, ULONGLONG now, bool aiming) {
     // walk until it has, then to nothing for a moment if that did not. Aiming (either mode) ends a sprint the same way:
     // the game raised the sights only once it ended, so they came up as the player stopped
     bool hold = s.sprint_mode == 0;
+    if ((pressed & kSprintBit) || !(raw & kSprintBit)) g_sprint_blocked = false;  // a new press, or let go
     bool want = hold && (raw & kSprintBit) && (pad.lx || pad.ly) && LeanState() == kLeanIsCenter && !g_lean_queued &&
-                now >= g_lean_until && !aiming;
+                now >= g_lean_until && !aiming && !g_sprint_blocked;
     if (hold) {
         pad.buttons &= ~kSprintBit;
         static ULONGLONG next = 0;
@@ -260,6 +264,7 @@ void StancePad(int port, input::Pad& pad) {
                 LOGR("stance: prone asked for (%s)", second ? "double tap" : "crouched");
             }
             g_crouch_until = now + kCrouchHold;
+            g_sprint_blocked = true;  // a held sprint waits for its key again (SprintLean)
         }
         if (pressed & kDpadUp) g_crouch_until = g_prone_until = 0;
         g_last_buttons = pad.buttons;
