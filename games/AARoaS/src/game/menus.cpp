@@ -28,6 +28,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -152,6 +153,49 @@ bool HasGlyph(int col, int row) {
     for (const Glyph& g : g_last_glyphs)
         if (g.col == col && g.row == row) return true;
     return false;
+}
+
+// --- The on-screen keyboard (a profile's name): its prompts Back (left shoulder), Clear (Y), Shift (X), Space (right
+// shoulder) and Done (Start) all at once, which no other page shows. Its shoulders are not tabs. Keys typed on the PC
+// keyboard (input::TakeTyped) are its keys: the selection steps to the key as the cursor's does, then A presses it.
+// The keys are the list's 38 items of one size, in reading order the letters, 0, 1 to 9, '.' and '-'.
+constexpr const char* kKeyboardKeys = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-";
+
+bool NameEntry() { return HasGlyph(0, 1) && HasGlyph(1, 1) && HasGlyph(1, 0) && HasGlyph(0, 2) && HasGlyph(1, 3); }
+
+// the key of the list that types c, 0 when the keys are not as expected
+uint32_t KeyFor(char c, int list) {
+    const char* at = std::strchr(kKeyboardKeys, c);
+    if (!c || !at) return 0;
+    std::vector<const Drawn*> items;
+    for (const Drawn& d : g_last)
+        if (d.parent == list && d.x1 > d.x0) items.push_back(&d);
+    // the keys' size: the one most items have
+    auto size_of = [](const Drawn* d) { return std::make_pair(int(std::lround(d->x1 - d->x0)), int(std::lround(d->y1 - d->y0))); };
+    std::unordered_map<int, int> counts;
+    int best = -1, best_count = 0;
+    for (const Drawn* d : items) {
+        auto [w, h] = size_of(d);
+        int n = ++counts[w * 1000 + h];
+        if (n > best_count) best_count = n, best = w * 1000 + h;
+    }
+    std::vector<const Drawn*> keys;
+    for (const Drawn* d : items) {
+        auto [w, h] = size_of(d);
+        if (std::abs(w - best / 1000) <= 2 && std::abs(h - best % 1000) <= 2) keys.push_back(d);
+    }
+    if (keys.size() != std::strlen(kKeyboardKeys)) {
+        static size_t logged = 0;
+        if (keys.size() != logged) LOGR("menus: the keyboard has %zu keys of one size, not 38: typing off", keys.size());
+        logged = keys.size();
+        return 0;
+    }
+    float row_gap = (best % 1000) * 0.5f;
+    std::sort(keys.begin(), keys.end(), [row_gap](const Drawn* a, const Drawn* b) {
+        if (std::abs(a->y0 - b->y0) > row_gap) return a->y0 < b->y0;
+        return a->x0 < b->x0;
+    });
+    return keys[size_t(at - kKeyboardKeys)]->element;
 }
 
 // each element's box widened by all below it (children follow their parent in draw order)
@@ -305,6 +349,7 @@ void FollowCursor() {
         g_target = 0;
         input::SetMenuClick(true);
         input::SetMenuStart(false, false);
+        input::SetTextEntry(false);
         input::TakeMenuEscape();
         return;
     }
@@ -346,7 +391,10 @@ void FollowCursor() {
     // of tiles, and following the cursor stepped through its values. Only the prompts are followed until the tabs are back
     static bool editing = false, was_tabbed = false;
     static ULONGLONG x_at = 0;
-    bool tabbed = HasGlyph(0, 2) || HasGlyph(1, 3);
+    // the on-screen keyboard: its shoulders are Back and Space, not tabs, and the PC keyboard types into it
+    bool name_entry = NameEntry();
+    input::SetTextEntry(name_entry);
+    bool tabbed = !name_entry && (HasGlyph(0, 2) || HasGlyph(1, 3));
     if ((GetAsyncKeyState('X') & 0x8000) && was_tabbed) x_at = GetTickCount64();
     if (was_tabbed && !tabbed && !g_last_glyphs.empty() && GetTickCount64() - x_at < 1500) editing = true;
     if (tabbed || g_last_glyphs.empty()) editing = false;
@@ -399,7 +447,7 @@ void FollowCursor() {
         // no list known: a click presses A ("press A to go on", or the main menu before its selection is told: its
         // first item), except on a tabbed page (Q and E shown: the Personnel Jacket, where A leaves): its prompts are
         // clicked instead
-        input::SetMenuClick(!(HasGlyph(0, 2) || HasGlyph(1, 3)));
+        input::SetMenuClick(!tabbed);
         // the title page (before the menus have said any item is selected): Enter and a click press Start too. Not
         // later: a page whose items send no selection (the mission select) took A and Start as two presses
         input::SetMenuStart(g_item_selected.empty(), false);
@@ -415,13 +463,47 @@ void FollowCursor() {
     g_selected = g_last[size_t(selected)].element;
     int list = g_last[size_t(selected)].parent;
     input::SetMenuStart(false, false);
-    if (!on_page) {
+    // a typed character on the on-screen keyboard: the selection steps to its key (below, as for the cursor), then A
+    // presses it, a press at a time; the cursor's moves wait meanwhile
+    static uint32_t typing_key = 0;
+    static ULONGLONG typed_at = 0, typing_since = 0;
+    bool typing = false;
+    if (name_entry) {
+        ULONGLONG now = GetTickCount64();
+        char c = 0;
+        if (!typing_key && now - typed_at >= 2 * kStepHoldMs + 2 * kStepGapMs && input::TakeTyped(c)) {
+            typing_key = KeyFor(c, list);
+            typing_since = now;
+            g_unreachable = 0;
+            g_step_gap = -1;
+        }
+        if (typing_key && now - typing_since > 3000) {  // never reached: given up on
+            LOGR("menus: a typed key was not reached");
+            typing_key = 0;
+        }
+        if (typing_key && typing_key == g_selected) {
+            if (g_step_at == 0) {  // the last step answered
+                input::PressMenuAnalog(1u << 0, 2 * kStepHoldMs);
+                typed_at = now;
+                typing_key = 0;
+                g_target = 0;
+            }
+            return;
+        }
+        if (typing_key) {
+            g_target = typing_key;
+            typing = true;
+        }
+    } else {
+        typing_key = 0;
+    }
+    if (!on_page && !typing) {
         input::SetMenuClick(false);
         return;
     }
     // a tabbed page (the Personnel Jacket: Q and E shown) with an Edit (X): a click on the selected row edits it, A
     // there leaves the page
-    bool edits = (HasGlyph(0, 2) || HasGlyph(1, 3)) && HasGlyph(1, 0);
+    bool edits = tabbed && HasGlyph(1, 0);
     input::SetMenuClick(!edits && hovered && hovered->element == g_selected);
     if (edits && click && hovered && hovered->element == g_selected) {
         input::PressMenuAnalog(1u << 2, 2 * 34);
@@ -429,7 +511,7 @@ void FollowCursor() {
         x_at = GetTickCount64();  // Edit: see editing above
     }
     if (hovered && hovered->element != g_unreachable) g_unreachable = 0;  // the cursor went to another item
-    if (moved && hovered && hovered->element != g_unreachable) {
+    if (moved && !typing && hovered && hovered->element != g_unreachable) {
         if (hovered->element != g_target) g_step_gap = -1;
         g_target = hovered->element;
     }
@@ -595,6 +677,12 @@ X86_FUNC(sub_0036B2A0) {
     }
     __imp__sub_0036B2A0(ctx, base);
 }
+
+// mouse.cpp: the on-screen keyboard is up (its icons are @typing's)
+bool MenusNameEntry() { return NameEntry(); }
+
+// intro.cpp: menu elements were drawn the last frame (a movie playing alone has none)
+bool MenusDrawn() { return !g_last.empty(); }
 
 // mouse.cpp, each frame: the game paused or not; a new pause learns its first page afresh
 void MenusPaused(bool paused) {

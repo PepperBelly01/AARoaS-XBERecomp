@@ -15,6 +15,7 @@
 #include <chrono>
 #include <cmath>
 #include <mutex>
+#include <string>
 
 #include "app/app.h"
 #include "core/input.h"
@@ -43,7 +44,18 @@ std::atomic<int64_t> g_menu_buttons_until{0};         // ... until then (steady 
 std::atomic<bool> g_menu_click{true};                 // a left click presses A
 std::atomic<bool> g_enter_start{false}, g_escape_start{false};  // SetMenuStart
 std::atomic<int> g_menu_escapes{0};  // Escape pressed in a game menu, not yet taken (TakeMenuEscape)
+std::atomic<bool> g_text_entry{false};  // SetTextEntry: a game menu's on-screen keyboard is up
+std::string g_typed;                    // characters typed for it, not yet taken (TakeTyped; under g_lock)
 HWND g_hwnd = nullptr;
+
+// a key that types into a name: its character (letters as capitals), 0 for any other
+char TypedChar(uintptr_t vk) {
+    if ((vk >= 'A' && vk <= 'Z') || (vk >= '0' && vk <= '9')) return char(vk);
+    if (vk >= VK_NUMPAD0 && vk <= VK_NUMPAD9) return char('0' + (vk - VK_NUMPAD0));
+    if (vk == VK_OEM_PERIOD || vk == VK_DECIMAL) return '.';
+    if (vk == VK_OEM_MINUS || vk == VK_SUBTRACT) return '-';
+    return 0;
+}
 // rebinding: 1 waiting for a key, 2 a key taken
 std::atomic<int> g_capture{0};
 std::atomic<uint16_t> g_captured{0};
@@ -183,6 +195,12 @@ bool OnWindowMessage(void* hwnd, uint32_t msg, uintptr_t wp, intptr_t lp) {
             if (wp == VK_ESCAPE && !(lp & (1 << 30)) && g_game_menu.load() && !app::MenuOpen()) g_menu_escapes++;
             if (!(lp & (1 << 30)) && wp != VK_F10 && Captures(key)) return true;
             if (app::MenuOpen() || !HasBinds()) return false;
+            if (!(lp & (1 << 30)) && g_text_entry.load() && g_game_menu.load()) {
+                if (char c = TypedChar(wp)) {
+                    std::lock_guard lock(g_lock);
+                    if (g_typed.size() < 32) g_typed += c;
+                }
+            }
             Set(key, true);
             return wp != VK_F10 && wp != VK_F4 && wp != VK_F3;  // the overlay's key, Alt+F4 and F3 go on
         }
@@ -300,6 +318,20 @@ void PressMenuButtons(uint16_t buttons, uint32_t ms) {
 
 void SetMenuClick(bool presses) { g_menu_click = presses; }
 
+void SetTextEntry(bool on) {
+    if (g_text_entry.exchange(on) == on || on) return;
+    std::lock_guard lock(g_lock);
+    g_typed.clear();
+}
+
+bool TakeTyped(char& c) {
+    std::lock_guard lock(g_lock);
+    if (g_typed.empty()) return false;
+    c = g_typed.front();
+    g_typed.erase(0, 1);
+    return true;
+}
+
 void SetMenuStart(bool enter, bool escape) {
     g_enter_start = enter;
     g_escape_start = escape;
@@ -362,6 +394,27 @@ void MergeKeyboard(int port, Pad& p) {
     // Game menus have their own keys, the same for everyone, so the icons can name them (GameInfo::key_actions are
     // play's): A Enter, Space or a click on an item; B Escape, Backspace or right click; X and Y their letters; the
     // D-pad the arrows and the wheel; the shoulders (pages, tabs) Q and E
+    // An on-screen keyboard (SetTextEntry): letters and digits type (TakeTyped, the game side picks their keys), so
+    // they press nothing here; Backspace, Space, Shift and Delete press the keyboard's Back (left shoulder), Space
+    // (right shoulder), Shift (X) and Clear (Y), Enter its Done (Start); Escape, a click and the arrows as in any menu
+    if (menu && g_text_entry.load()) {
+        if (held(VK_LBUTTON) && g_menu_click.load()) p.analog[0] = 0xFF;
+        if (held(VK_RBUTTON) || held(VK_ESCAPE)) p.analog[1] = 0xFF;
+        if (held(VK_LSHIFT) || held(VK_RSHIFT)) p.analog[2] = 0xFF;
+        if (held(VK_DELETE)) p.analog[3] = 0xFF;
+        if (held(VK_BACK)) p.analog[6] = 0xFF;
+        if (held(VK_SPACE)) p.analog[7] = 0xFF;
+        if (held(VK_RETURN)) p.buttons |= 1u << 4;
+        if (held(VK_UP) || wheel[0]) p.buttons |= 1u << 0;
+        if (held(VK_DOWN) || wheel[1]) p.buttons |= 1u << 1;
+        if (held(VK_LEFT)) p.buttons |= 1u << 2;
+        if (held(VK_RIGHT)) p.buttons |= 1u << 3;
+        if (NowMs() < g_menu_buttons_until.load()) p.buttons |= g_menu_buttons.load();
+        if (NowMs() < g_menu_analogs_until.load())
+            for (int i = 0; i < 8; i++)
+                if (g_menu_analogs.load() & (1u << i)) p.analog[i] = 0xFF;
+        return;
+    }
     if (menu) {
         bool accept = (held(VK_LBUTTON) && g_menu_click.load()) || held(VK_RETURN) || held(VK_SPACE);
 

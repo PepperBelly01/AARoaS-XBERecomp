@@ -4,6 +4,14 @@
 // the first four end at once, and only while one of those calls runs: other movies (the Roles films, the Extras
 // screen's, the menu's demo when idle) step 0x2F4540 from elsewhere and were ended too while only the count was
 // asked (user, 2026-11-13).
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+
 #include "app/app.h"
 #include "core/log.h"
 #include "xdk/hle.h"
@@ -25,10 +33,30 @@ X86_FUNC(sub_00300470) {
     g_boot_movie = false;
 }
 
+bool MenusDrawn();  // menus.cpp
+
+// A left click ends a movie as Enter does (a skip runs its finish handler, as for the boot movies above): over the
+// game's window, the overlay closed, and no menu drawn over it (a page with a movie behind it keeps its clicks)
+bool ClickSkips() {
+    static bool was_down = false;
+    bool down = (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0;
+    bool click = down && !was_down;
+    was_down = down;
+    if (!click || app::MenuOpen() || MenusDrawn()) return false;
+    HWND hwnd = static_cast<HWND>(app::Window());
+    POINT p;
+    RECT r;
+    if (!hwnd || GetForegroundWindow() != hwnd || !GetCursorPos(&p) || !ScreenToClient(hwnd, &p) ||
+        !GetClientRect(hwnd, &r) || !PtInRect(&r, p))
+        return false;
+    LOGR("intro: a click skipped the movie");
+    return true;
+}
+
 // the movie's next frame (thiscall, no arguments): nonzero while it plays on
 X86_EXTERN_FUNC(__imp__sub_002F4540);
 X86_FUNC(sub_002F4540) {
-    if (g_boot_movie) {
+    if (g_boot_movie || ClickSkips()) {
         ctx.eax = 0;
         ctx.esp += 4;
         return;

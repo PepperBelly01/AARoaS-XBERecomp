@@ -193,6 +193,7 @@ int AimAssist(uint8_t* base, uint32_t viewport);  // aim_assist.cpp: 0, 1 undo t
 float ShownFov();                                   // aim_assist.cpp
 bool GamePaused(uint8_t* base, uint32_t viewport);  // aim_assist.cpp
 void MenusPaused(bool paused);                      // menus.cpp
+bool MenusNameEntry();                              // menus.cpp
 void UpdateKeyIcons();                              // key_icons.cpp
 void StanceFrame(uint8_t* base, uint32_t viewport);  // stance.cpp
 void CutsceneFrame(uint8_t* base, uint32_t viewport);  // cutscene.cpp
@@ -374,8 +375,11 @@ X86_FUNC(sub_002F4D00) {
     input::SetGameMenu(!gpu::screen2d::Frame3D() || paused);
     MenusPaused(paused);  // menus.cpp: Escape closes the pause menu from its first page
     // the button icons follow the device used last: the keyboard's and mouse's (textures\replacement\@keyboard\,
-    // tools\make_key_icons.ps1) or the controller's own
-    gpu::texturedumper::SetPackGroup("keyboard", !input::UsingPad());
+    // tools\make_key_icons.ps1) or the controller's own. The on-screen keyboard's are @typing's: Backspace, Space, Shift,
+    // Delete and Enter press its buttons there (menus.cpp, core/keyboard.cpp)
+    bool typing = MenusNameEntry();
+    gpu::texturedumper::SetPackGroup("keyboard", !input::UsingPad() && !typing);
+    gpu::texturedumper::SetPackGroup("typing", !input::UsingPad() && typing);
     // Aim Assist off (aim_assist.cpp): 0, 1 the lock's pull taken out, 2 the same while firing
     int undo = AimAssist(base, player);
     uint32_t view_obj = g_found ? X86_MEM32(player + g_use.field) : 0;

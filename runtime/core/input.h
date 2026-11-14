@@ -71,6 +71,11 @@ void PressMenuButtons(uint16_t buttons, uint32_t ms);
 // the same for Pad::analog buttons (A B X Y black white, the triggers), a bit each: a menu's on-screen prompt clicked
 void PressMenuAnalog(uint8_t analogs, uint32_t ms);
 void SetMenuClick(bool presses);
+// a game menu's on-screen keyboard is up: letter and digit keys type (TakeTyped hands them over one at a time,
+// letters as capitals) instead of pressing menu buttons, and Backspace, Space, Shift, Delete and Enter press the
+// keyboard's own buttons (keyboard.cpp MergeKeyboard)
+void SetTextEntry(bool on);
+bool TakeTyped(char& c);
 // a game menu that takes Start: Enter (and a click) press it too on a page with no list (a "press start" page); escape
 // is not used (Escape is B in menus; the game side presses Start when B left the pause menu's page as it was)
 void SetMenuStart(bool enter, bool escape);

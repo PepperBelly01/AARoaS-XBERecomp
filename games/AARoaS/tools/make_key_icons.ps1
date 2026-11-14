@@ -76,4 +76,22 @@ Key   $g (1 * $c) (3 * $c) $c "E"       # right shoulder: the page after
 $bmp.Save((Join-Path $Out "128x128_cee43c3773341320_keys.png"), [Drawing.Imaging.ImageFormat]::Png)
 $g.Dispose(); $bmp.Dispose()
 
+# The on-screen keyboard (a profile's name) types from the PC keyboard: its buttons are Backspace, Space, Shift, Delete
+# and Enter there (core/keyboard.cpp), a click picks a key. Kept in @typing beside @keyboard, which menus.cpp turns on
+# in @keyboard's place while that keyboard is up
+$Typing = Join-Path (Split-Path $Out -Parent) "@typing"
+New-Item -ItemType Directory -Force $Typing | Out-Null
+$bmp, $g = NewCanvas 512 512
+Key   $g (0 * $c) (0 * $c) $c "CLICK"   # A: pick the key under the cursor
+Key   $g (1 * $c) (0 * $c) $c "SHIFT"   # X: Shift
+Key   $g (2 * $c) (0 * $c) $c "ESC"     # B: Cancel
+Key   $g (0 * $c) (1 * $c) $c "ENTER"   # Start: Done
+Key   $g (1 * $c) (1 * $c) $c "DEL"     # Y: Clear
+Key   $g (0 * $c) (2 * $c) $c "BKSP"    # left shoulder: Back
+Key   $g (1 * $c) (2 * $c) $c "TAB"     # Black (not on this page)
+Key   $g (0 * $c) (3 * $c) $c "Z"       # White (not on this page)
+Key   $g (1 * $c) (3 * $c) $c "SPACE"   # right shoulder: Space
+$bmp.Save((Join-Path $Typing "128x128_cee43c3773341320_keys.png"), [Drawing.Imaging.ImageFormat]::Png)
+$g.Dispose(); $bmp.Dispose()
+
 "Key icons written to $Out"

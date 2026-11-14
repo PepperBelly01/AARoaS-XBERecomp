@@ -439,6 +439,18 @@ automatically through `../../cmake/XbeRecomp.cmake`; no `sdk\` copy is needed.
   a ULevel::DestroyActor (0x1AE490) hook logging callers. Idea from the 007FRWL recomp (keeps 32 bodies and items).
   Not checked: dropped weapons (DeadCleanup also destroys the pawn's +0x4D8 and +0x4D4 actors), many bodies' cost.
 
+- **Profile name keyboard** (menus.cpp NameEntry/KeyFor, core/keyboard.cpp SetTextEntry/TakeTyped; user confirmed
+  2026-11-13): told by its prompts L R X Y Start all shown. Its shoulders are Back and Space, not tabs (a click had
+  pressed X, Shift, as on the Personnel Jacket). Letter, digit, '.' and '-' keys are queued and typed by stepping the
+  selection to the key (the list's 38 same-size items in reading order) and pressing A; Backspace, Space, Shift,
+  Delete and Enter press Back, Space, Shift, Clear and Done. Its icons are @typing's sheet (make_key_icons.ps1),
+  switched on in @keyboard's place by mouse.cpp. Later (user tabled): instant typing by sending the page's own
+  character message (F9 probe on the keyboard to find it) instead of stepping.
+- **Click skips movies** (intro.cpp ClickSkips, user confirmed): a left click over the window with no menu drawn
+  ends a movie in 0x2F4540 as the boot skip does.
+- **Release icons**: release.bat runs make_key_icons.ps1 into the zip's textures\replacement\@keyboard (the menus'
+  sheet and @typing); a fresh install had shown the Xbox buttons in every menu.
+
 ## Future: PC features the user wants (paused 2026-11-10)
 Still to do (2026-11-12): the lowered gun under Free Look (see Free Look), a controller combo to open the overlay, overlay navigation for non-Xbox pads (ImGui's backend reads XInput pad 0 only).
 
