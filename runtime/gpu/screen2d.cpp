@@ -61,6 +61,12 @@ constexpr float kMoved = 0.2f;                     // ... and moved, this near (
 // this frame so far: any canvas draw yet, the first was across the screen (the dimmed layer of a pause menu or
 // briefing over the 3D view: the frame is a menu, all of it kept 4:3 about the centre), the run being drawn
 bool g_any = false, g_menu = false, g_in_run = false;
+// A menu frame stays one: last frame was a menu, so this one is from its first draw, kept if a draw across the screen
+// comes at all (the mission end screen sometimes drew another piece first, and taken for the HUD its text in the left
+// third went to the left edge, the line broken up; user, 2026-11-13). No draw across: the menu is over.
+// Held only while a band shows (across, not down the whole screen): play draws a full screen layer every frame after
+// a cutscene (its fade), which held the menu on and bunched the HUD into the middle (user, 2026-11-13).
+bool g_menu_last = false, g_menu_held = false, g_across = false, g_across_first = false, g_band = false;
 Box g_run{};
 Canvas g_run_anchor = Canvas::Centre;
 // clip space (the frame is 2 across): a run takes a draw this near it, a word space across, touching up and down
@@ -103,7 +109,12 @@ void GroupDrawn() {
     g_last_boxes.swap(g_drawn);
     g_drawn.clear();
     g_drawn_world.clear();
-    g_any = g_menu = g_in_run = false;
+    if (g_menu_held && g_across && !g_across_first) {
+        static int told = 0;
+        if (told++ < 20) LOGR("2d: a menu frame began with another draw; kept a menu (%d)", told);
+    }
+    g_menu_last = g_menu && g_band;
+    g_any = g_menu = g_in_run = g_menu_held = g_across = g_across_first = g_band = false;
 }
 
 // a box new this frame that is one of last frame's moved a little: it follows the world
@@ -128,8 +139,24 @@ bool Additive(const State& s) { return s.simple[kMBlendEnable / 4] && s.simple[k
 Canvas Decide(const Box& b, bool hide, bool wide, bool additive) {
     bool first = !g_any;
     g_any = true;
-    if (b.x1 - b.x0 >= 2 * kFill) {  // across the screen: fades, flashes, overlays still fill it
-        if (first) g_menu = true;
+    bool across = b.x1 - b.x0 >= 2 * kFill;
+    if (first && !across && g_menu_last) g_menu = g_menu_held = true;  // last frame's menu, until shown otherwise
+    if (across) {  // across the screen: fades, flashes, overlays still fill it
+        // a band (across, not down the whole screen) later in the frame starts a menu too: the death screen's subtitle
+        // (the HUD's, its 9-slice pieces each short of the width) came first. A full screen layer (a flash, a fade, a
+        // scope) does not: the HUD drawn after it stays the HUD
+        bool band = b.y1 - b.y0 < 2 * kFill;
+        if (band) g_band = true;
+        if (!first && band && !g_menu) {
+            g_menu = true;
+            static int told = 0;
+            if (told++ < 10) LOGR("2d: a band across the screen began a menu: %.3f,%.3f-%.3f,%.3f", b.x0, b.y0, b.x1, b.y1);
+        }
+        if (first) g_menu = g_across_first = true;
+        g_across = true;
+        if (g_trace.load() > 0)
+            LOGR("2d trace: %.3f,%.3f-%.3f,%.3f (%.3fx%.3f) across%s", b.x0, b.y0, b.x1, b.y1, b.x1 - b.x0, b.y1 - b.y0,
+                 g_menu ? ", menu" : "");
         return Canvas::Keep;
     }
     if (g_menu) return wide ? Canvas::Centre : Canvas::Keep;  // a menu over the 3D view: as made, hidden or not

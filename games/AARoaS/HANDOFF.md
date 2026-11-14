@@ -317,6 +317,12 @@ automatically through `../../cmake/XbeRecomp.cmake`; no `sdk\` copy is needed.
   through one `Decide` in draw order: a frame whose first 2D draw spans the width is a menu over the 3D view
   (pause, briefing, objectives) and stays 4:3 centred, not hidden; else runs of touching draws (a word space
   across) take one anchor, matched to last frame by box so typed out text does not flicker.
+  End screens (user confirmed on two deaths, 2026-11-13; Mission Accomplished not yet seen since): the death screen's
+  first draw was the HUD's subtitle (9-slice pieces each short of the width), so the screen was placed as HUD (header
+  left, prompts right, typed lines split). A band (across, not full height: its thin divider line) anywhere in the
+  frame now starts the menu; draws before it stay HUD; a full screen layer does not count. A menu is held into the
+  next frame while a band shows. Held on any across draw instead, play after a cutscene (a full screen layer every
+  frame) stayed a menu and bunched the HUD. Log: "2d: a band across ..." and "kept a menu"; F9 traces list across draws.
 - **Ambient occlusion** (SSAO/GTAO, user confirmed): kAoHlsl in d3d12.cpp from the reference, depth reversed (z
   buffer: view z = -m32 / (depth - (1 - m22)) from the camera projection; w buffer from the draws' zparams). Armed
   in widescreen.cpp with the world camera's projection (d3d::ArmOcclusion); d3d8.cpp runs it, once 48+ draws are
