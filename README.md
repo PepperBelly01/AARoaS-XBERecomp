@@ -84,7 +84,7 @@ Set in `settings.toml` (`custom_textures`, `dump_textures`, `texture_dump_format
 Clone this repository using [Git](https://git-scm.com/).
 
 ### 2. Add the Required Game Files
-This project lives in `gamesAARoaS` (the SDK the port is built with is the rest of this repository, see [SDK_README.md](SDK_README.md)). `build.bat` links `..\..\Game` (the extracted game) as `assets` on the first run, so nothing needs copying. To use another copy, delete the `assets` link and put the files there instead.
+This project lives in `games/AARoaS` (the SDK the port is built with is the rest of this repository, see [SDK_README.md](SDK_README.md)). `build.bat` links `..\..\Game` (the extracted game) as `assets` on the first run, so nothing needs copying. To use another copy, delete the `assets` link and put the files there instead.
 
 ### 3. Install Dependencies
 Install Visual Studio 2022 with **Desktop development with C++**, **C++ Clang tools for Windows** and **C++ CMake tools for Windows** (`build.bat` offers to add the last two).
