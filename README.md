@@ -1,89 +1,99 @@
-# Xbox XBE Recomp
+# America's Army: Rise of a Soldier - XBE Recomp
 
-A tool for creating unofficial native PC ports of original Xbox games. Games are statically recompiled from their x86 XBE into native 64 bit Windows executables. The game's x86 code is translated to C++ ahead of time. The Xbox kernel and the XDK libraries (Direct3D 8, DirectSound, XAPI, XNet) are implemented at the API level on Windows. Everything is drawn with a native Direct3D 12 renderer and played through XAudio2.
+An unofficial native PC port of the original Xbox version of America's Army: Rise of a Soldier (USA), with extended graphics options and other enhancements.
 
-This tool was originally created for porting [Tom Clancy's Splinter Cell: Double Agent](https://github.com/TGP482/SCDoubleAgent-XBERecomp) and was later used to port:
-- [BLACK](https://github.com/TGP482/BLACK-XBERecomp)
-- [007: From Russia With Love](https://github.com/TGP482/007FRWL-XBERecomp)
-- [007: Nightfire](https://github.com/TGP482/007Nightfire-XBERecomp)
-- [Red Dead Revolver](https://github.com/TGP482/RDR-XBERecomp)
+This port was created using the [Xbox XBE Recomp](https://github.com/TGP482/XboxXBE-Recomp) tool.
 
 > [!NOTE]
 > This project does not include any game assets. You must provide the files from your own legally acquired copy of the game to install or build.
 
 ## Installation
 
-- Put this repository in your game repository as `sdk/`. This can be a copy or a submodule.
-- In the game's `CMakeLists.txt`:
-   ```cmake
-   include(sdk/cmake/XbeRecomp.cmake)
-   file(GLOB XBE_HOST_SOURCES CONFIGURE_DEPENDS src/*/*.cpp)
-   list(FILTER XBE_HOST_SOURCES EXCLUDE REGEX "/src/game/")
-   add_xbe_image(MyGame default.xbe game.toml 128 game)
-   ```
-- Build with Clang and Ninja (`clang++`, `-fuse-ld=lld`). Zydis, toml++, Dear ImGui and SDL3 are fetched by CMake.
-
-## Game Setup
-
-1. Copy `templates/game` to a new repository and put this SDK in it as `sdk/`. Set `GAME_TITLE`, `GAME_XBE` and `GAME_EXE` at the top of `build.bat` (`GAME_EXE` in `release.bat` too), and the target and xbe in `add_xbe_image` in `CMakeLists.txt`.
-2. Put the game's XBE and its data folders in the `assets` folder. No game files, keys or generated code belong in any repository.
-3. Run `xbe_symbols`, which `build.bat` does on the first build:
-   ```
-   xbe_symbols assets\default.xbe sdk\xdk --library MyGame.dll --out config\game.toml
-   ```
-   This prints the XBE's library versions, picks `xdk/<build>/signatures.toml` and finds the XDK functions and data the host replaces, then writes the config: `[xbe]` with a partition count and the code sections, the `layout.toml` include, `[symbols]` and `[data]`. Misses and ambiguous names are listed and left at 0, which become trapping stubs. It stops when no `signatures.toml` exists for the XBE's build.
-4. Fill in `app::kGame` in `src/common/game_info.cpp`: title, window name, log and settings file names, splash, the xbe to exe table, game options, and the hooks for loading, the window, drawing and the pads.
-5. Game hooks go in `src/game`. Define `X86_FUNC(sub_XXXXXXXX)` to replace a recompiled function, and call `__imp__sub_XXXXXXXX` to reach the original. `python sdk/tools/symbols/xbe2pe.py config/game.toml game.exe` writes a flat PE with the recompiled functions as exports for Ghidra.
-6. Run `build.bat`. One game repo can build several images, one config and `add_xbe_image` each; `--name` sets the config's `generated/<name>`, which is the folder argument of `add_xbe_image`.
-
-A new XDK build needs `xdk/<build>/layout.toml` and signatures made from titles whose configs are complete: `xbe_symbols --sign config/a.toml [config/b.toml] --out sdk/xdk/<build>/signatures.toml`. Signatures are lengths and hashes of the functions with addresses masked, never library code.
+- Put your game files in the `assets` folder. This can be an ISO, or the extracted data files.
+- Run `AARoaS.exe`. The first start compiles the game's code for your PC, this only happens once.
+- Recomp settings can be adjusted in the Settings overlay while the game is running, opened with <kbd>F10</kbd>. They are saved in `settings.toml` beside the exe.
 
 ## Features
 
-### Recompiler
-- **Function Discovery** - Finds every function in the XBE by following direct calls, code pointers and the gaps between known functions.
-- **Jump Tables** - Resolves switch tables of every form the Xbox compiler writes, including byte indexed and backwards tables, memcpy tables and copy sleds.
-- **C++ Exceptions** - Supports C++ exceptions, with try and catch blocks working as on the Xbox.
-- **x87, SSE and MMX** - Translates x87, SSE and MMX instructions, with the x87 register stack tracked at run time.
-- **Overridable Functions** - Makes every recompiled function replaceable, allowing a game to override any of them without editing generated code.
-- **Instruction Hooks** - Adds `[[hook]]`, which calls a game function before or after any instruction, and can return from or jump within the function.
-- **Analysis Overrides** - Adds `[[function]]`, `[[switch]]` and `[xbe] data_ranges` to add functions, set switch targets and mark data the analysis gets wrong.
-- **Incremental Builds** - Only rewrites generated files when their content changes, keeping rebuilds fast.
-- **Game Code on the Player's PC** - Builds the recompiled code into `<exe>.dll` on the first start of a release, from the player's own XBE, with the bundled recompiler, Clang and LLD behind a progress window. A release ships no game code.
-- **XDK Signatures** - Finds the XDK functions and data in a new game automatically and writes its config.
-- **LTCG Libraries** - Supports games built with link time code generation, where library functions take their arguments in registers.
-
-### CPU and Kernel
-- **Guest Calls** - Adds indirect calls and host calls into game code, with the Xbox's 733 MHz timer and Pentium III CPUID.
-- **x87 Precision** - Follows the game's x87 precision setting, giving the same results as on the Xbox.
-- **CRT Math** - Computes the game's math functions on the host, fixing math that returned invalid results at random.
-- **Kernel** - Implements threads, waits, files, memory, crypto and EEPROM settings, with game files read from host folders or a disc image.
-- **Image Switching** - Relaunches into the matching executable when the game loads another XBE, keeping the window on screen without a gap.
+### Display
+- **Display Mode** - Switch between Fullscreen, Borderless and Windowed.
+- **Resolution** - Lists every mode your monitor reports, replacing the original 640x480.
+- **Render Resolution** - Renders the game at a percentage of the output resolution, for supersampling or downscaling.
+- **Aspect Ratio** - 4:3 as on the Xbox, or 16:9, which shows more to the sides and spreads the HUD out to the screen's corners, while menus, briefings and the map stay 4:3 in the middle.
+- **16:9 Scopes and Binoculars** - In 16:9 the M24, M82 and M4 ACOG scopes and the binoculars are remade to be round instead of stretched, and night vision drops the HUD shapes painted into its overlay. They are made from your own game's textures the first time each is seen; 4:3 keeps the originals.
+- **Field of View** - Sets the horizontal field of view in play. Aiming zooms in from it as usual.
+- **Max Frame Rate** - Your monitor's refresh rate, 30 to 240 FPS, or unlimited, replacing the Xbox's 30 FPS limit. Recoil, weapon sway and the aim lock keep their original 30 FPS timing at any frame rate.
+- **V-Sync** - Reduces screen tearing.
+- **FPS Counter** - Displays the frame rate on screen.
+- **Hide HUD** - Hides the HUD in play, for screenshots, through night vision, scopes and binoculars too.
+- **HDR Output** - HDR10 on displays with Windows HDR on: highlights such as the sun, fire and flashes reach your display's peak brightness.
+- **Pause On Focus Loss** - The game and its sound pause while the window is in the background.
 
 ### Graphics
-- **Direct3D 8** - Implements Direct3D 8 as the XDK does it, including immediate mode draws, palettes, gamma ramps and Direct3D code built into the game.
-- **Native Direct3D 12 Renderer** - Translates the Xbox's vertex programs, pixel combiners and fixed function pipeline to HLSL, with rendering on its own thread.
-- **Renderer Extensions** - Allows a game to change render targets, add passes and add to the generated shaders through `gpu::Extension`, set with `gpu::SetExtension` from `GameInfo::init`.
+- **Multisample Antialiasing (MSAA)** - 2x, 4x or 8x MSAA smooths the edges of 3D shapes while keeping the image sharp.
+- **Subpixel Morphological Antialiasing (SMAA)** - Smooths jagged edges across the whole frame, fences and foliage included. Can be combined with MSAA.
+- **Anisotropic Filtering** - Forces the selected anisotropic filtering level on all textures.
+- **Ambient Occlusion** - Adds soft contact shadows where surfaces meet, SSAO or GTAO, with adjustable strength. It fades with the fog and stays under smoke, dust and night vision's light.
+- **Grass Distance** - Grass reaches up to four times further before it fades out.
 
 ### Audio
-- **DirectSound** - Mixes sound in software through XAudio2, with Xbox ADPCM, streams, mix bins and the effects image.
-- **Audio Output** - Plays in 5.1 surround, stereo or mono.
-
-### Input
-- **Controller** - Supports Xbox, PlayStation and Switch controllers through SDL3, with hot plugging and rumble.
+- **Output** - Automatic, Stereo, 5.1 Surround or Mono.
 
 ### General
-- **Disc Images** - Runs the game from an ISO in the `assets` folder, either a whole disc dump or the game partition, or from the extracted data files.
-- **System Link** - System Link can be played over LAN, or by directly connecting to a friend's IP address.
-- **Bink Movies** - Fixes Bink movies playing too fast above 30 FPS and crashing on fast reads, for games that use Bink.
-- **Crash Dumps** - Writes crash dumps to a `CrashDumps` folder beside the exe.
+- **Skip Intros** - Skips the logo and rating movies at start up. The Roles films and the Extras screen's films still play.
+- **Persistent Bodies** - Keeps the bodies of fallen soldiers on the map: 32, 64, 128 or all of them, instead of only the last one.
+
+### Mouse and Keyboard
+- **Mouse Look** - Raw mouse input that turns the view directly, with separate horizontal and vertical sensitivity and inverted axes.
+- **Rebindable Keys** - Two keys or mouse buttons per action. In-game prompts show the keys you have bound.
+- **Free Look** - Hold <kbd>Alt</kbd> to look around while the weapon stays pointed ahead.
+- **Trigger Squeeze** - The fire button squeezes the trigger like the controller's, rather than pulling it in one go, so a shot does not jerk the weapon's sway.
+- **Movement Modes** - Slow Walk, Sprint, Lean and Aim each work as Hold or Toggle, and combine smoothly while moving: aiming, or scoping with the scroll wheel, eases you out of a sprint and brings the sights up as you slow, and crouching ends a held sprint. Double tap crouch to go prone.
+- **Clickable Menus** - The menus' button prompts can be clicked with the mouse, and names can be typed straight in.
+- **Auto-Sighting** and **Acquisition Icon** - The game's own options, set from the overlay and kept in step with its menu.
+- **Target Zoom** - Turns off the game's zoom on a sighted enemy, and **Zoom Sensitivity** sets how much your aim slows down while it zooms.
+
+### Controller
+- Supports Xbox, PlayStation and Switch controllers, with hot plugging and rumble. The controller plays as on the original Xbox.
+- **Vibration** and **Inverted Axes** can be set separately from the mouse. Button prompts switch between keys and controller buttons with whichever you last used.
+
+## Known Issues
+
+- With Target Zoom off, the M249's zoom level can be inconsistent when sighting a target.
+- On the snowy map, ambient occlusion can show faint seams on the terrain.
+- A scope, the binoculars or night vision may show its original 4:3 look for a moment the first time it is used, while its 16:9 version is made.
+
+### Textures
+Set in `settings.toml` (`custom_textures`, `dump_textures`, `texture_dump_format`).
+- **Texture Replacement** - Replaces the game's textures with the `.dds` or `.png` images in the `textures\replacement` folder beside the exe.
+- **Texture Dumping** - Saves every texture the game uses into the `textures\dumps` folder beside the exe, as PNG or DDS.
 
 ### Miscellaneous
 - **Boot Splash** - Place a `splash.png` (or `.bmp`) beside the exe to display a splash screen at launch.
-- **Diagnostics** - Logs frame timing with `XBE_PERF`, captures a frame with F3 when `XBE_CAPTURE_DIR` is set and enables the Direct3D 12 debug layer with `XBE_D3D12_DEBUG`.
+
+## System Requirements
+
+### Minimum
+- **OS**
+  - Windows 10 64-bit
+- **GPU** with support for Direct3D 12
+
+## Building
+
+### 1. Clone the Repository
+Clone this repository using [Git](https://git-scm.com/).
+
+### 2. Add the Required Game Files
+This project lives in `gamesAARoaS` (the SDK the port is built with is the rest of this repository, see [SDK_README.md](SDK_README.md)). `build.bat` links `..\..\Game` (the extracted game) as `assets` on the first run, so nothing needs copying. To use another copy, delete the `assets` link and put the files there instead.
+
+### 3. Install Dependencies
+Install Visual Studio 2022 with **Desktop development with C++**, **C++ Clang tools for Windows** and **C++ CMake tools for Windows** (`build.bat` offers to add the last two).
+
+### 4. Build the Project
+Run `build.bat`. The first build recompiles the game and takes a while. The exe is written to `out\build\release`.
 
 ## Credits
 
-- [XenonRecomp](https://github.com/hedge-dev/XenonRecomp) for the overridable function layout and instruction hooks this follows.
+- [Xbox XBE Recomp](https://github.com/TGP482/XboxXBE-Recomp), the recompiler and runtime this is built on.
+- [XenonRecomp](https://github.com/hedge-dev/XenonRecomp) for the overridable function layout and instruction hooks.
 - [Zydis](https://github.com/zyantific/zydis) for decoding x86 instructions, [toml++](https://github.com/marzer/tomlplusplus) for the configs, [Dear ImGui](https://github.com/ocornut/imgui) for the settings overlay and [SDL](https://github.com/libsdl-org/SDL) for the window, input and controllers.
-- [xemu](https://github.com/xemu-project/xemu) and [Cxbx-Reloaded](https://github.com/Cxbx-Reloaded/Cxbx-Reloaded) as references for the Xbox's hardware and API behaviour. This project does not use emulation or any emulator code.
