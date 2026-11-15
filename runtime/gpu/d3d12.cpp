@@ -2192,6 +2192,7 @@ void D3D12Backend::LatchPackKey(Tex& tx, const TextureDesc& d, const FormatInfo&
     tx.swap = nullptr;
     uint64_t key = texturedumper::Key(d, fi, p, colours);
     texturedumper::Dump(key, d, p, colours);
+    texturedumper::Make(key, d, p, colours);  // a game's own image from these bytes, the first time
     // dumping alone keys the bytes too: the pack image is not drawn then
     tx.pack_key = texturedumper::Replacing() ? key : 0;
 }

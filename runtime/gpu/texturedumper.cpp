@@ -88,6 +88,13 @@ struct Pack {
     std::unordered_set<uint64_t> asked;
     std::unordered_map<uint64_t, std::optional<Image>> loaded;  // empty: the file did not load
     std::unordered_set<uint64_t> dumped;
+    struct Maker {
+        std::string file;
+        MakeFn make;
+        bool done = false;
+    };
+    std::unordered_map<uint64_t, Maker> makers;  // AddMaker's
+    std::atomic<bool> any_makers{false};
 };
 
 Pack g;
@@ -607,7 +614,7 @@ uint32_t Generation() { return g.generation; }
 bool Replacing() { return g.set.replacing && !g.files.empty(); }
 
 uint64_t Key(const TextureDesc& d, const FormatInfo& fi, const uint8_t* guest, const uint32_t* palette) {
-    if (!Replacing() && !g.set.dumping) return 0;
+    if (!Replacing() && !g.set.dumping && !(g.set.replacing && g.any_makers)) return 0;
     // cube maps, volumes and depth stay the console's; linear ones are movie frames and the game's own copies
     if (d.cube || d.depth > 1 || d.linear || UploadFormat(fi.host) == DXGI_FORMAT_UNKNOWN) return 0;
     uint32_t shape[] = {d.format, d.width, d.height};
@@ -630,6 +637,66 @@ void Dump(uint64_t key, const TextureDesc& d, const uint8_t* guest, const uint32
         } else {
             WritePng(path, img);
         }
+    });
+}
+
+void AddMaker(uint64_t key, const char* file, MakeFn make) {
+    std::lock_guard l(g.lock);
+    g.makers[key] = {file, make};
+    g.any_makers = true;
+}
+
+void Make(uint64_t key, const TextureDesc& d, const uint8_t* guest, const uint32_t* palette) {
+    if (!key || !g.any_makers || !g.set.replacing || g.pack_dir.empty()) return;
+    std::string file;
+    MakeFn make = nullptr;
+    {
+        std::lock_guard l(g.lock);
+        auto it = g.makers.find(key);
+        if (it == g.makers.end() || it->second.done) return;
+        it->second.done = true;
+        file = it->second.file;
+        make = it->second.make;
+    }
+    fs::path path = g.pack_dir / fs::path(file);  // ASCII names
+    std::error_code ec;
+    if (fs::exists(path, ec)) return;
+    Post([path, make, img = Decode(d, guest, palette)] {
+        IWICImagingFactory* wic = Wic();
+        std::vector<uint8_t> dds, bgra, out;
+        ComPtr<IWICBitmapSource> src;
+        ComPtr<IWICBitmap> made;
+        uint32_t ow = 0, oh = 0;
+        HRESULT hr = wic ? LevelZeroBitmap(wic, img, dds, src) : E_FAIL;
+        if (SUCCEEDED(hr)) {
+            bgra.resize(size_t(img.width) * img.height * 4);
+            hr = src->CopyPixels(nullptr, img.width * 4, UINT(bgra.size()), bgra.data());
+        }
+        if (SUCCEEDED(hr) && !make(bgra.data(), img.width, img.height, out, ow, oh)) hr = E_FAIL;
+        if (SUCCEEDED(hr) && out.size() < size_t(ow) * oh * 4) hr = E_FAIL;
+        if (SUCCEEDED(hr)) {
+            hr = wic->CreateBitmapFromMemory(ow, oh, GUID_WICPixelFormat32bppBGRA, ow * 4, UINT(out.size()), out.data(),
+                                             &made);
+        }
+        std::error_code ec2;
+        fs::create_directories(path.parent_path(), ec2);
+        ComPtr<IWICStream> stream;
+        ComPtr<IWICBitmapEncoder> encoder;
+        ComPtr<IWICBitmapFrameEncode> frame;
+        WICPixelFormatGUID format = GUID_WICPixelFormat32bppBGRA;
+        if (SUCCEEDED(hr)) hr = wic->CreateStream(&stream);
+        if (SUCCEEDED(hr)) hr = stream->InitializeFromFilename(path.c_str(), GENERIC_WRITE);
+        if (SUCCEEDED(hr)) hr = wic->CreateEncoder(GUID_ContainerFormatPng, nullptr, &encoder);
+        if (SUCCEEDED(hr)) hr = encoder->Initialize(stream.Get(), WICBitmapEncoderNoCache);
+        if (SUCCEEDED(hr)) hr = encoder->CreateNewFrame(&frame, nullptr);
+        if (SUCCEEDED(hr)) hr = frame->Initialize(nullptr);
+        if (SUCCEEDED(hr)) hr = frame->SetSize(ow, oh);
+        if (SUCCEEDED(hr)) hr = frame->SetPixelFormat(&format);
+        if (SUCCEEDED(hr)) hr = frame->WriteSource(made.Get(), nullptr);
+        if (SUCCEEDED(hr)) hr = frame->Commit();
+        if (SUCCEEDED(hr)) hr = encoder->Commit();
+        if (FAILED(hr)) LOGE("texture pack: %s not made (0x%08lx)", Utf8(path).c_str(), static_cast<unsigned long>(hr));
+        else LOGR("texture pack: made %s", Utf8(path).c_str());
     });
 }
 

@@ -33,6 +33,7 @@
         if (_count++ < (n)) LOGR(__VA_ARGS__); \
     } while (0)
 
+void AddOverlayMakers();  // overlays.cpp
 namespace {
 
 // viewport +0x18 client; client +0x2C engine, +0x30 viewports (first is the player's); engine vtable +0x94
@@ -313,6 +314,8 @@ X86_FUNC(sub_002F4D00) {
     // tools\make_key_icons.ps1) or the controller's own. The on-screen keyboard's are @typing's: Backspace, Space, Shift,
     // Delete and Enter press its buttons there (menus.cpp, core/keyboard.cpp)
     bool typing = MenusNameEntry();
+    static bool made = (AddOverlayMakers(), true);  // overlays.cpp: the overlay images made from the player's textures
+    (void)made;
     gpu::texturedumper::SetPackGroup("keyboard", !input::UsingPad() && !typing);
     gpu::texturedumper::SetPackGroup("typing", !input::UsingPad() && typing);
     // the night vision overlay without its HUD shapes (lens case, compass) unless the HUD shows 4:3 over them: hidden,

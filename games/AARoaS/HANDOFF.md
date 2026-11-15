@@ -571,3 +571,8 @@ Mouse and keyboard, 16:9 widescreen, resolutions up to 4K, FoV, SMAA, ambient oc
   (made from the dump: the two shapes' alpha filled by neighbour averaging, 4x), group on with Hide HUD or 16:9
   (mouse.cpp). It is game data: only in the build folder, not the repo or zip; a release needs it made on the player's
   PC. The binoculars' and a scope's dumps (256x256_1e0001d4be4e9b83, 256x256_3b9bd624ac58b47d) are for 16:9 scopes next.
+- **Overlays made on the player's PC** (texturedumper AddMaker/Make, called from d3d12 LatchPackKey; recipes in
+  src\game\overlays.cpp, registered from mouse.cpp): the first time a listed texture is seen with replacement on, its
+  level 0 is decoded to BGRA, remade and saved under textures\replacement\ (@hidehud night vision, @wide M24, ACOG, M82
+  scopes and binoculars), then the pack watcher loads it; nothing from the game ships. The earlier hand-made images are
+  in _to_delete\overlays_handmade. User confirmed the binoculars, M24 and M82 made in play.

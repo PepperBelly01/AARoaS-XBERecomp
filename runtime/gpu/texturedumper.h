@@ -44,6 +44,16 @@ uint64_t Key(const TextureDesc& d, const FormatInfo& fi, const uint8_t* guest, c
 // once per key while dumping: PNG level 0, or DDS with every level in the format the renderer uploads
 void Dump(uint64_t key, const TextureDesc& d, const uint8_t* guest, const uint32_t* palette);
 
+// Pack images a game makes from the player's own textures, which a release cannot carry (game data): the first time
+// the texture with key is seen with replacement on, its level 0 is decoded to BGRA (rows packed), make turns it into
+// the image (out, ow by oh, BGRA) and that is saved as file under textures\replacement\ unless a file is there
+// already; the pack then loads it as any other. Any thread, before the texture is drawn.
+using MakeFn = bool (*)(const uint8_t* bgra, uint32_t w, uint32_t h, std::vector<uint8_t>& out, uint32_t& ow,
+                        uint32_t& oh);
+void AddMaker(uint64_t key, const char* file, MakeFn make);
+// the render thread, with each texture's key as it is latched
+void Make(uint64_t key, const TextureDesc& d, const uint8_t* guest, const uint32_t* palette);
+
 // Ready moves the image into out; the first ask starts loading it off the calling thread.
 // None: replacement off, no pack image for key, or its file did not load
 Lookup Take(uint64_t key, Image& out);
