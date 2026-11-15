@@ -644,6 +644,8 @@ struct ArmedOcclusion {
 ArmedOcclusion g_ao;
 uint32_t g_ao_clears = 0;             // depth clears since arming
 constexpr uint64_t kWorldDraws = 48;  // draws since arming that make a world, not a sky pass ahead of it
+constexpr uint64_t kMinWorld = 8;     // the fewest, once blended draws show the world is done (BeforeDraw)
+bool g_ao_blended = false;            // a blended draw not writing depth since arming
 
 // Particles held back. Smoke and dust (DrawVerticesUP, blended, not writing depth, not additive) must not have AO
 // under them, but every solid and alpha tested draw must have it, and the order varies by map: smoke before the last
@@ -657,6 +659,7 @@ struct HeldDraw {
     uint32_t prim = 0, count = 0, stride = 0;
     std::vector<uint8_t> vertices;
     std::vector<uint16_t> indices;
+    uint32_t tex[4][5] = {};  // the stages' texture headers when held
 };
 std::vector<std::unique_ptr<HeldDraw>> g_held;  // kept between frames, the first g_held_n in use
 size_t g_held_n = 0;
@@ -698,8 +701,27 @@ void ReleaseParticles() {
         HeldDraw& h = *g_held[i];
         h.state.streams[0] = {UpVertices(h.vertices.data(), uint32_t(h.vertices.size())), h.stride};
         gpu::MarkAllSimple();
+        // a texture header the game re-pointed since is put back as it was for the draw (night vision: the Humvee's
+        // and lamps' beams drawn as flat green blocks; user, 2026-11-15)
+        uint32_t now[4][5] = {};
+        bool changed[4] = {};
+        for (int t = 0; t < 4; t++) {
+            uint32_t hd = h.state.textures[t];
+            if (!hd) continue;
+            for (int k = 0; k < 5; k++) now[t][k] = R32(hd + 4 * k);
+            if (!std::memcmp(now[t], h.tex[t], sizeof(now[t]))) continue;
+            changed[t] = true;
+            static int told = 0;
+            if (told++ < 4)
+                LOGR("d3d8: held particle stage %d texture %08X: %08X %08X %08X %08X %08X -> %08X %08X %08X %08X %08X", t, hd, h.tex[t][0], h.tex[t][1], h.tex[t][2], h.tex[t][3], h.tex[t][4],
+                     now[t][0], now[t][1], now[t][2], now[t][3], now[t][4]);
+            for (int k = 0; k < 5; k++) W32(hd + 4 * k, h.tex[t][k]);
+        }
         g_backend->Draw(h.state, h.prim, 0, h.count,
                         h.indices.empty() ? nullptr : reinterpret_cast<const uint8_t*>(h.indices.data()));
+        for (int t = 0; t < 4; t++)
+            if (changed[t])
+                for (int k = 0; k < 5; k++) W32(h.state.textures[t] + 4 * k, now[t][k]);
     }
     g_held_n = 0;
     gpu::MarkAllSimple();
@@ -713,8 +735,17 @@ bool HoldsParticle() {
     // (a black star; user, 2026-11-13)
     bool additive = g_state.simple[gpu::kMDestBlend / 4] == 1;
     if (additive && !g_held_n) return false;
+    // 2D drawn as ordinary draws (no depth test) is never held: the briefing map's animated path was replayed from
+    // stale texture headers and stood still (user, 2026-11-15)
+    constexpr uint32_t kCmpAlways = 0x207;
+    if (g_state.rs[gpu::kRsZEnable] == 0 || g_state.simple[gpu::kMZFunc / 4] == kCmpAlways) return false;
+    // nor 2D under an orthographic projection (fixed function): screen2d places it in draw order, and the briefing
+    // map's tunnel picture, replayed later, went 16:9 and 4:3 by turns (user, 2026-11-15)
+    const auto& proj = g_state.transforms[3];  // D3DTS_PROJECTION
+    bool program = g_state.vs && !g_state.vs->program.empty();
+    if (!program && proj[3] == 0 && proj[7] == 0 && proj[11] == 0 && proj[15] == 1) return false;
     return g_backend && blend && !zwrite && !gpu::IsPretransformed(g_state) && g_ao.armed &&
-           g_ao.frame == g_presents.load() && g_draws - g_ao.draws >= kWorldDraws;
+           g_ao.frame == g_presents.load() && g_draws - g_ao.draws >= kMinWorld;
 }
 
 // Each draw, before it goes: traced, and ambient occlusion goes in ahead of the first screen space draw after the
@@ -728,8 +759,16 @@ void BeforeDraw(bool up) {
     // no screen space draw had no AO at all once particles stopped setting it off (training map; user, 2026-11-13)
     constexpr uint32_t kCmpAlways = 0x207;
     bool flat = !zwrite && (g_state.rs[gpu::kRsZEnable] == 0 || g_state.simple[gpu::kMZFunc / 4] == kCmpAlways);
-    if (screen || flat) {
-        if (g_ao.armed && g_draws - g_ao.draws >= kWorldDraws) RunOcclusion();
+    // a small world (a tunnel, the briefing room) is drawn in fewer than kWorldDraws: one that has gone on to its
+    // blended draws is done all the same. Waiting for the count put the AO over the briefing map and after the
+    // tunnel's depth writing haze, which flattened it there (AO coming and going by where one stood; user, 2026-11-15)
+    if (g_ao.armed && !screen && !flat && blend && !zwrite) g_ao_blended = true;
+    // blended draws writing depth once particles are held: the world is done, and these (the tunnel's haze) flatten
+    // the depth the AO reads, so it goes ahead of them (the floor's AO came and went by where one stood; 2026-11-15)
+    bool after = blend && zwrite && !screen && !flat && g_held_n > 0;
+    if (screen || flat || after) {
+        if (g_ao.armed && (g_draws - g_ao.draws >= kWorldDraws || (g_ao_blended && g_draws - g_ao.draws >= kMinWorld)))
+            RunOcclusion();
         ReleaseParticles();
     }
     if (!g_tracing) return;
@@ -878,6 +917,7 @@ void ArmOcclusion(const float* m, bool gtao) {
     std::lock_guard<std::recursive_mutex> lock(g_lock);
     // a perspective projection only (row vectors: m23 = 1, m33 = 0)
     if (!g_backend || m[11] != 1.0f || m[15] != 0.0f || !m[0] || !m[5]) return;
+    g_ao_blended = false;
     g_ao = {true, g_presents.load(), g_draws, {1 / m[0], 1 / m[5], m[8], m[9], m[14], m[10], 0, 0, 0, gtao ? 1.0f : 0.0f}};
     g_ao_clears = 0;
     Trace('C');
@@ -1549,6 +1589,8 @@ void DrawUp(uint32_t prim, uint32_t count, const void* vertices, uint32_t stride
         h.vertices.assign(static_cast<const uint8_t*>(vertices), static_cast<const uint8_t*>(vertices) + used * stride);
         if (indices) h.indices.assign(indices, indices + count);
         else h.indices.clear();
+        for (int t = 0; t < 4; t++)
+            for (int k = 0; k < 5; k++) h.tex[t][k] = g_state.textures[t] ? R32(g_state.textures[t] + 4 * k) : 0;
         g_state.streams[0] = stream;
         return;
     }

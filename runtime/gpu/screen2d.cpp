@@ -80,6 +80,7 @@ bool g_any = false, g_menu = false, g_in_run = false;
 // Held only while a band shows (across, not down the whole screen): play draws a full screen layer every frame after
 // a cutscene (its fade), which held the menu on and bunched the HUD into the middle (user, 2026-11-13).
 bool g_menu_last = false, g_menu_held = false, g_across = false, g_across_first = false, g_band = false;
+bool g_full_first = false, g_corner = false;  // the first draw a full screen layer; a piece in a corner
 Box g_run{};
 Canvas g_run_anchor = Canvas::Centre;
 // clip space (the frame is 2 across): a run takes a draw this near it, a word space across, touching up and down
@@ -126,8 +127,10 @@ void GroupDrawn() {
         static int told = 0;
         if (told++ < 20) LOGR("2d: a menu frame began with another draw; kept a menu (%d)", told);
     }
-    g_menu_last = g_menu && g_band;
-    g_any = g_menu = g_in_run = g_menu_held = g_across = g_across_first = g_band = false;
+    // or a frame begun by a full screen layer with nothing in the corners: a briefing over its backdrop, not night
+    // vision or a scope over play, whose HUD (ammo, compass) sits in the corners, hidden or not (user, 2026-11-15)
+    g_menu_last = (g_menu && g_band) || (g_full_first && !g_corner);
+    g_any = g_menu = g_in_run = g_menu_held = g_across = g_across_first = g_band = g_full_first = g_corner = false;
 }
 
 // a box new this frame that is one of last frame's moved a little: it follows the world
@@ -167,13 +170,20 @@ Canvas Decide(const Box& b, bool hide, bool wide, bool additive) {
             static int told = 0;
             if (told++ < 10) LOGR("2d: a band across the screen began a menu: %.3f,%.3f-%.3f,%.3f", b.x0, b.y0, b.x1, b.y1);
         }
-        if (first) g_menu = g_across_first = true;
+        // the first draw starting a menu only as a band: a full screen layer first is night vision, a scope or
+        // binoculars over play (it had kept the HUD 4:3 and shown it with Hide HUD on; user, 2026-11-15)
+        // A full screen layer first keeps last frame's menu going: the briefing's backdrop, under the map's band (its
+        // tunnel picture went 16:9 and 4:3 by turns; user, 2026-11-15)
+        if (first && (band || g_menu_last)) g_menu = g_across_first = true;
+        if (first && !band) g_full_first = true;
         g_across = true;
         if (g_trace.load() > 0)
             LOGR("2d trace: %.3f,%.3f-%.3f,%.3f (%.3fx%.3f) across%s", b.x0, b.y0, b.x1, b.y1, b.x1 - b.x0, b.y1 - b.y0,
                  g_menu ? ", menu" : "");
         return Canvas::Keep;
     }
+    // a piece in a corner (the HUD's ammo or compass), seen hidden or not (EndFrame)
+    if (std::abs(b.x0 + b.x1) > 1.0f && std::abs(b.y0 + b.y1) > 1.0f) g_corner = true;
     if (g_menu) return wide ? Canvas::Centre : Canvas::Keep;  // a menu over the 3D view: as made, hidden or not
     if (hide) return Canvas::Hide;
     if (!wide) return Canvas::Keep;

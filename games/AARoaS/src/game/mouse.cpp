@@ -315,6 +315,9 @@ X86_FUNC(sub_002F4D00) {
     bool typing = MenusNameEntry();
     gpu::texturedumper::SetPackGroup("keyboard", !input::UsingPad() && !typing);
     gpu::texturedumper::SetPackGroup("typing", !input::UsingPad() && typing);
+    // the night vision overlay without its HUD shapes (lens case, compass) unless the HUD shows 4:3 over them: hidden,
+    // or spread 16:9 away from them (user, 2026-11-15)
+    gpu::texturedumper::SetPackGroup("hidehud", app::Get().hide_hud || app::Widescreen());
     AimAssist(base, player);  // aim_assist.cpp: a target held, for Target Zoom
     uint32_t view_obj = g_found ? X86_MEM32(player + g_use.field) : 0;
     uint32_t view = view_obj && Readable(view_obj + g_use.offset, 8) ? view_obj + g_use.offset : 0;

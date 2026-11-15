@@ -121,7 +121,7 @@ static void Rise(input::Pad& pad, uint16_t pressed, ULONGLONG now) {
 // way for the same key again, on Hold as the key comes up; and from a lean asked for and while leaning the stick goes no
 // further than a slow walk, so the lean is taken while walking and walking does not end it.
 namespace {
-constexpr uint16_t kSprintBit = 1u << 6, kLeanLeft = 1u << 2, kLeanRight = 1u << 3;
+constexpr uint16_t kSprintBit = 1u << 6, kLeanLeft = 1u << 2, kLeanRight = 1u << 3, kZoomBit = 1u << 7;
 constexpr ULONGLONG kClick = 100;     // ms a press we send is held
 constexpr ULONGLONG kSprintRetry = 400;  // ms between sprint clicks at most
 constexpr ULONGLONG kSprintEase = 250;    // ms at a slow walk to end a sprint before stopping for a moment
@@ -187,6 +187,28 @@ static void SprintLean(input::Pad& pad, ULONGLONG now, bool aiming) {
     // the game raised the sights only once it ended, so they came up as the player stopped
     bool hold = s.sprint_mode == 0;
     if ((pressed & kSprintBit) || !(raw & kSprintBit)) g_sprint_blocked = false;  // a new press, or let go
+    // Zoom (the scroll wheel's scope) while sprinting: kept back while the sprint eases out as aiming's does, then
+    // sent; a held sprint waits for its key again after, so it does not take the scope down (user, 2026-11-15)
+    // The game takes the zoom only at a slow walk or standing (at a walk it did nothing; user, 2026-11-15): so while
+    // moving it is kept back with the stick at a slow walk until the player has slowed, then sent, the stick held
+    // there through the click
+    static ULONGLONG zoom_queued = 0, slow_since = 0, zoom_slow_until = 0;
+    if (pressed & kZoomBit) {
+        g_sprint_blocked = true;
+        if (pad.lx || pad.ly) zoom_queued = now, slow_since = 0;
+    }
+    bool zoom_waiting = zoom_queued != 0;
+    if (zoom_queued) {
+        pad.buttons &= ~kZoomBit;
+        if (Sprinting()) slow_since = 0;
+        else if (!slow_since) slow_since = now;
+        if ((slow_since && now - slow_since >= kSprintEase && now >= g_send_until + kClick) || now - zoom_queued > 1500) {
+            Send(kZoomBit, now);
+            zoom_slow_until = now + kClick + 100;
+            zoom_queued = 0;
+        }
+    }
+    aiming = aiming || zoom_waiting;
     bool want = hold && (raw & kSprintBit) && (pad.lx || pad.ly) && LeanState() == kLeanIsCenter && !g_lean_queued &&
                 now >= g_lean_until && !aiming && !g_sprint_blocked;
     if (hold) {
@@ -230,6 +252,7 @@ static void SprintLean(input::Pad& pad, ULONGLONG now, bool aiming) {
     }
     if (now < g_send_until) pad.buttons |= g_send;
     if (lean != kLeanIsCenter || now < g_lean_until) Limit(pad, kLeanReach);
+    if ((zoom_waiting && !Sprinting()) || now < zoom_slow_until) Limit(pad, kLeanReach);  // a zoom kept back: slowed
 }
 
 // Aim on Toggle (Settings::aim_mode): the aim key (Tweak Lock, the left trigger: the game aims while it is held)

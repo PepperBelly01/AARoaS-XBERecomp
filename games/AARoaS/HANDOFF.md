@@ -551,3 +551,23 @@ Mouse and keyboard, 16:9 widescreen, resolutions up to 4K, FoV, SMAA, ambient oc
 - Don't edit `Game\` (their original extracted files). Generated code (`generated\`) and build output (`out\`)
   are fine to regenerate.
 - Keep updates short; tell them when they need to click or test something.
+
+## 2026-11-15 fixes (user confirmed)
+- **Night vision, scopes, binoculars and 2D placement** (screen2d Decide): a first draw across the screen starts a menu
+  only as a band; a full screen first layer (NV, scope) keeps play's HUD 16:9 and Hide HUD working. A full screen first
+  layer continues last frame's menu, and a frame begun by one with no piece in the corners (g_corner: the HUD's ammo,
+  compass) holds the menu into the next: the briefing map over its backdrop stays 4:3.
+- **Held particles** (d3d8.cpp): each keeps its stage texture headers and is drawn with them put back for the replay
+  (the game clears an internal reference bit, 0x00080000 of Common, between; NV beams were flat green blocks). Never
+  held: draws without a depth test, and fixed function draws under an orthographic projection (screen2d's 2D; the
+  briefing map's tunnel picture). Held from kMinWorld (8) draws after arming.
+- **AO timing**: a flat or screen draw sets AO off at kMinWorld draws once a blended no-zwrite draw was seen (small
+  worlds: briefing room, tunnels), and a blended depth-writing draw with particles held sets it off too (the tunnel's
+  haze flattened the floor's AO).
+- **Scroll wheel scope** (stance.cpp): the game zooms only at a slow walk or standing, so a zoom while moving is kept
+  back, the sprint eased out as for aiming, the stick at a slow walk, and sent once slowed; a held sprint waits for its
+  key again after.
+- **Night vision overlay without its HUD shapes**: textures\replacement\@hidehud\256x256_12c86152af72d766_nv_clean.png
+  (made from the dump: the two shapes' alpha filled by neighbour averaging, 4x), group on with Hide HUD or 16:9
+  (mouse.cpp). It is game data: only in the build folder, not the repo or zip; a release needs it made on the player's
+  PC. The binoculars' and a scope's dumps (256x256_1e0001d4be4e9b83, 256x256_3b9bd624ac58b47d) are for 16:9 scopes next.
