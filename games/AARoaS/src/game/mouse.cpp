@@ -34,6 +34,7 @@
     } while (0)
 
 void AddOverlayMakers();  // overlays.cpp
+void DevFrame(uint8_t* base, uint32_t viewport);  // devmode.cpp
 namespace {
 
 // viewport +0x18 client; client +0x2C engine, +0x30 viewports (first is the player's); engine vtable +0x94
@@ -324,6 +325,7 @@ X86_FUNC(sub_002F4D00) {
     // the scopes and binoculars remade for 16:9 (round again across it), the originals in 4:3
     gpu::texturedumper::SetPackGroup("wide", app::Widescreen());
     AimAssist(base, player);  // aim_assist.cpp: a target held, for Target Zoom
+    DevFrame(base, player);   // devmode.cpp: the overlay's Developer section (God Mode)
     uint32_t view_obj = g_found ? X86_MEM32(player + g_use.field) : 0;
     uint32_t view = view_obj && Readable(view_obj + g_use.offset, 8) ? view_obj + g_use.offset : 0;
     g_pre_at = view;  // the Rotation the tick turns: the recoil turns it after (AimAfterTick)

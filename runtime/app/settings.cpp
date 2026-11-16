@@ -91,6 +91,7 @@ void Load() {
     s.hide_hud = t["hide_hud"].value_or(s.hide_hud);
     s.skip_intros = t["skip_intros"].value_or(s.skip_intros);
     s.pause_on_focus_loss = t["pause_on_focus_loss"].value_or(s.pause_on_focus_loss);
+    s.developer_mode = t["developer_mode"].value_or(s.developer_mode);
     s.aniso = t["anisotropic_filtering"].value_or(s.aniso);
     s.smaa = t["smaa"].value_or(s.smaa);
     s.msaa = std::min(t["msaa"].value_or(s.msaa), 8u);
@@ -196,6 +197,7 @@ toml::table Table() {
             keys.insert(KeySlug(kGame.key_actions[i].name), toml::array{int64_t(s.keys[i][0]), int64_t(s.keys[i][1])});
         t.insert("keys", std::move(keys));
     }
+    if (s.developer_mode) t.insert("developer_mode", true);
     if (kGame.save) kGame.save(&t);
     return t;
 }

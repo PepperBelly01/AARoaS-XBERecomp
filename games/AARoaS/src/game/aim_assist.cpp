@@ -17,6 +17,7 @@
 #endif
 #include <windows.h>
 
+#include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -355,4 +356,55 @@ void AimAssist(uint8_t* base, uint32_t viewport) {
     if (!located) return;
     // a target held (the lock's, or the red dot's)
     g_target = X86_MEM32(controller + lock.offset) || X86_MEM32(controller + selected.offset);
+}
+
+// a probe: every property of the object's class chain whose name holds one of the words, with its offset and the
+// word at it now, into the log (devmode.cpp, finding what AA's damage reduces besides Health)
+void LogProperties(uint8_t* base, uint32_t object, const std::vector<std::string>& words) {
+    if (!g_next || !Readable(object, 0x40)) return;
+    const auto& names = AllNames(base);
+    uint32_t cls = X86_MEM32(object + kObjClass);
+    for (int depth = 0; cls && depth < 32 && Readable(cls, 0x40); depth++, cls = X86_MEM32(cls + kSuper)) {
+        auto cn = names.find(X86_MEM32(cls + kObjName));
+        LOGR("dev: class %d %s", depth, cn == names.end() ? "?" : cn->second.c_str());
+        for (uint32_t f = X86_MEM32(cls + kChildren), n = 0; f && n < 2048 && Readable(f, 0x60); f = X86_MEM32(f + g_next), n++) {
+            auto it = names.find(X86_MEM32(f + kObjName));
+            if (it == names.end()) continue;
+            std::string low = it->second;
+            for (char& c : low) c = char(std::tolower(uint8_t(c)));
+            bool hit = false;
+            for (const std::string& w : words) hit |= low.find(w) != std::string::npos;
+            if (!hit) continue;
+            uint32_t off = X86_MEM32(f + g_offset_field);
+            uint32_t v = off < 0x4000 && Readable(object + off, 4) ? X86_MEM32(object + off) : 0;
+            float fv;
+            std::memcpy(&fv, &v, 4);
+            LOGR("dev:   %s +0x%X = %08X (%d, %.2f)", it->second.c_str(), off, v, int32_t(v), fv);
+        }
+    }
+}
+
+// a class object by name (an object named so whose own class is named Class), searched for over all memory once and
+// kept: 0 when none (devmode.cpp, the DamageType class)
+uint32_t FindClass(uint8_t* base, const char* name) {
+    static std::unordered_map<std::string, uint32_t> found;
+    auto it = found.find(name);
+    if (it != found.end()) return it->second;
+    const std::vector<uint32_t>& names = NameIndexes(base, name);
+    const std::vector<uint32_t>& class_names = NameIndexes(base, "Class");
+    uint32_t hit = 0;
+    for (uint32_t page = 0x10000; page < 0x80000000u && !hit; page += 0x1000) {
+        if (!mem::IsCommitted(page)) continue;
+        for (uint32_t at = page; at < page + 0x1000 && !hit; at += 4) {
+            if (std::find(names.begin(), names.end(), X86_MEM32(at)) == names.end()) continue;
+            uint32_t object = at - kObjName;
+            if (!Readable(object, 0x40)) continue;
+            uint32_t cls = X86_MEM32(object + kObjClass);
+            if (!Readable(cls, 0x40)) continue;
+            if (std::find(class_names.begin(), class_names.end(), X86_MEM32(cls + kObjName)) != class_names.end())
+                hit = object;
+        }
+    }
+    LOGR("dev: class %s %s %08X", name, hit ? "at" : "not found", hit);
+    return found[name] = hit;
 }

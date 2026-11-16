@@ -370,6 +370,12 @@ void DrawRecomp() {
         Cycle("Recoil System", s.weapon_tuning, {{0, "Original"}, {1, "Revised"}},
               "Revised puts the values in weapon_tuning.ini beside the exe (recoil, sway, accuracy, fire rate per weapon) "
               "over the game's. Takes effect the next start.");
+
+    // only with developer_mode = true in settings.toml: aids for testing, never shown to players
+    if (s.developer_mode) {
+        Section("Developer");
+        Toggle("God Mode", s.god_mode, "The player takes no lasting damage. For this session only.");
+    }
 }
 
 // the game's aiming help (GameInfo::aim_assist), in both the Mouse and Keyboard and the Controller tabs

@@ -31,6 +31,10 @@ struct Settings {
     bool hide_hud = false;           // the 2D over the 3D view is not drawn (GameInfo::screen_2d)
     bool skip_intros = false;        // the boot movies, for a game whose hooks honour it (GameInfo::skip_intros)
     bool pause_on_focus_loss = true;  // the game and its sound wait while the window is in the background (focus_pause.cpp)
+    // settings.toml's developer_mode = true alone shows the overlay's Developer section (testing aids, not for
+    // players: written back only while on). god_mode lasts the session, never saved
+    bool developer_mode = false;
+    bool god_mode = false;
     uint32_t aniso = 0;              // 0 as the game asks
     bool smaa = false;               // SMAA over the finished frame, HUD included
     uint32_t msaa = 0;               // samples a pixel of the scene, 0 off (2, 4 or 8)

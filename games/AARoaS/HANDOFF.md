@@ -576,3 +576,8 @@ Mouse and keyboard, 16:9 widescreen, resolutions up to 4K, FoV, SMAA, ambient oc
   level 0 is decoded to BGRA, remade and saved under textures\replacement\ (@hidehud night vision, @wide M24, ACOG, M82
   scopes and binoculars), then the pack watcher loads it; nothing from the game ships. The earlier hand-made images are
   in _to_delete\overlays_handmade. User confirmed the binoculars, M24 and M82 made in play.
+- **Developer section** (settings.toml `developer_mode = true`, written back only while on; never in the zip): God Mode
+  (session only) holds Pawn.Health at 250 and BleedHealth at 0 (src\game\devmode.cpp, whose header lists what failed:
+  top-up to 100, 10000 flips the view, ReducedDamageType not honoured). At 250 the view narrows; grenades can kill.
+  Next step for real invulnerability: catch TakeDamage in the script call path. Probes kept in aim_assist.cpp:
+  LogProperties, FindClass.
