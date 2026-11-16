@@ -1,6 +1,6 @@
 # America's Army: Rise of a Soldier - XBE Recomp
 
-An unofficial native PC port of the original Xbox version of America's Army: Rise of a Soldier (USA), with extended graphics options and other enhancements.
+An unofficial native PC port of the original Xbox version of America's Army: Rise of a Soldier, with extended graphics options and other enhancements.
 
 This port was created using the [Xbox XBE Recomp](https://github.com/TGP482/XboxXBE-Recomp) tool.
 
@@ -60,7 +60,7 @@ This port was created using the [Xbox XBE Recomp](https://github.com/TGP482/Xbox
 ## Known Issues
 
 - With Target Zoom off, the M249's zoom level can be inconsistent when sighting a target.
-- On the some maps, ambient occlusion can show faint seams on the terrain.
+- On the some maps, ambient occlusion can show faint seams on the terrain or show through fog.
 - Some dialogue later in the game does not play correctly.
 - A scope, the binoculars or night vision may show its original 4:3 look for a moment the first time it is used, while its 16:9 version is made.
 
