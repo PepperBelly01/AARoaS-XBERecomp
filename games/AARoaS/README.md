@@ -49,18 +49,18 @@ This port was created using the [Xbox XBE Recomp](https://github.com/TGP482/Xbox
 - **Free Look** - Hold <kbd>Alt</kbd> to look around while the weapon stays pointed ahead.
 - **Trigger Squeeze** - The fire button squeezes the trigger like the controller's, rather than pulling it in one go, so a shot does not jerk the weapon's sway.
 - **Movement Modes** - Slow Walk, Sprint, Lean and Aim each work as Hold or Toggle, and combine smoothly while moving: aiming, or scoping with the scroll wheel, eases you out of a sprint and brings the sights up as you slow, and crouching ends a held sprint. Double tap crouch to go prone.
-- **Clickable Menus** - The menus' button prompts can be clicked with the mouse, and names can be typed straight in.
+- **Clickable Menus** - The menus' button prompts can be clicked with the mouse.
 - **Auto-Sighting** and **Acquisition Icon** - The game's own options, set from the overlay and kept in step with its menu.
 - **Target Zoom** - Turns off the game's zoom on a sighted enemy, and **Zoom Sensitivity** sets how much your aim slows down while it zooms.
 
 ### Controller
-- Supports Xbox, PlayStation and Switch controllers, with hot plugging and rumble. The controller plays as on the original Xbox.
+- Supports Xbox controller with hot plugging and rumble. The controller plays as on the original Xbox.
 - **Vibration** and **Inverted Axes** can be set separately from the mouse. Button prompts switch between keys and controller buttons with whichever you last used.
 
 ## Known Issues
 
 - With Target Zoom off, the M249's zoom level can be inconsistent when sighting a target.
-- On the snowy map, ambient occlusion can show faint seams on the terrain.
+- On the some maps, ambient occlusion can show faint seams on the terrain.
 - A scope, the binoculars or night vision may show its original 4:3 look for a moment the first time it is used, while its 16:9 version is made.
 
 ### Textures
