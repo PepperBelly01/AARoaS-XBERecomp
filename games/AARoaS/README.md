@@ -61,6 +61,7 @@ This port was created using the [Xbox XBE Recomp](https://github.com/TGP482/Xbox
 
 - With Target Zoom off, the M249's zoom level can be inconsistent when sighting a target.
 - On the some maps, ambient occlusion can show faint seams on the terrain.
+- Some dialogue later in the game does not play correctly.
 - A scope, the binoculars or night vision may show its original 4:3 look for a moment the first time it is used, while its 16:9 version is made.
 
 ### Textures
