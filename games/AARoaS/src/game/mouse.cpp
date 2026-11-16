@@ -346,6 +346,14 @@ X86_FUNC(sub_002F4D00) {
     }
 
     g_free_held = view && !InCutscene() && input::ActionHeld(0);  // Free Look (game_info.cpp), above
+    // Toggle HUD (game_info.cpp, H): the overlay's Hide HUD switched and saved, on the press (user, 2026-11-15)
+    static bool hud_was = false;
+    bool hud_now = input::ActionHeld(1);
+    if (hud_now && !hud_was) {
+        app::Get().hide_hud = !app::Get().hide_hud;
+        app::Save();
+    }
+    hud_was = hud_now;
     float dx, dy;
     if (!input::TakeMouse(dx, dy)) return;
     if (InCutscene()) return;  // cutscene.cpp: the scene's camera is not the player's to turn (the counts dropped)

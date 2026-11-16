@@ -25,7 +25,7 @@ This port was created using the [Xbox XBE Recomp](https://github.com/TGP482/Xbox
 - **Max Frame Rate** - Your monitor's refresh rate, 30 to 240 FPS, or unlimited, replacing the Xbox's 30 FPS limit. Recoil, weapon sway and the aim lock keep their original 30 FPS timing at any frame rate.
 - **V-Sync** - Reduces screen tearing.
 - **FPS Counter** - Displays the frame rate on screen.
-- **Hide HUD** - Hides the HUD in play, for screenshots, through night vision, scopes and binoculars too.
+- **Hide HUD** - Hides the HUD in play, for screenshots, through night vision, scopes and binoculars too. <kbd>H</kbd> (Toggle HUD, rebindable) switches it in play.
 - **HDR Output** - HDR10 on displays with Windows HDR on: highlights such as the sun, fire and flashes reach your display's peak brightness.
 - **Pause On Focus Loss** - The game and its sound pause while the window is in the background.
 
@@ -34,7 +34,7 @@ This port was created using the [Xbox XBE Recomp](https://github.com/TGP482/Xbox
 - **Subpixel Morphological Antialiasing (SMAA)** - Smooths jagged edges across the whole frame, fences and foliage included. Can be combined with MSAA.
 - **Anisotropic Filtering** - Forces the selected anisotropic filtering level on all textures.
 - **Ambient Occlusion** - Adds soft contact shadows where surfaces meet, SSAO or GTAO, with adjustable strength. It fades with the fog and stays under smoke, dust and night vision's light.
-- **Grass Distance** - Grass reaches up to four times further before it fades out.
+- **Grass Distance** - Grass reaches 1x (the game's own) up to 4x further before it fades out.
 
 ### Audio
 - **Output** - Automatic, Stereo, 5.1 Surround or Mono.

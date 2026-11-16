@@ -324,7 +324,12 @@ void DrawRecomp() {
     Section("Graphics");
     if (kGame.grass_distance) {
         std::vector<Choice> distances;
-        for (uint32_t p = 100; p <= 400; p += 50) distances.push_back({p, p == 100 ? "100% (Default)" : std::to_string(p) + "%"});
+        // stored as a percent, shown as the distance's multiple: 1x, 1.5x ... 4x
+        for (uint32_t p = 100; p <= 400; p += 50) {
+            char label[24];
+            std::snprintf(label, sizeof(label), p == 100 ? "%gx (Default)" : "%gx", p / 100.0);
+            distances.push_back({p, label});
+        }
         Cycle("Grass Distance", s.grass_distance, distances,
               "How far grass reaches before it fades out, against the game's own. More costs a few frames on grassy maps.");
     }

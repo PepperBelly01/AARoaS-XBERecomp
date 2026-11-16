@@ -47,6 +47,7 @@ const app::GameInfo app::kGame = {
                     {"Slow Walk", input::PadTarget::SlowWalk, 50, {0x20, 0}},  // the stick half over (35% is in the dead zone)
                     {"Tweak Lock", input::PadTarget::Analog, 6, {0x02, 0}},
                     {"Free Look", input::PadTarget::Game, 0, {0xA4, 0xA5}},  // mouse.cpp: Alt, left or right
+                    {"Toggle HUD", input::PadTarget::Game, 1, {'H', 0}},      // mouse.cpp: the overlay's Hide HUD
                     {"D-Pad Up", input::PadTarget::Button, 0, {'C', 0x26}},
                     {"D-Pad Down", input::PadTarget::Button, 1, {'X', 0x28}},
                     {"D-Pad Left", input::PadTarget::Button, 2, {'Q', 0x25}},
