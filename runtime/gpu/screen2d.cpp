@@ -67,6 +67,7 @@ struct Last {
 };
 std::vector<Box> g_drawn;                          // this frame's canvas draws in order
 std::vector<bool> g_drawn_world;                   // each one found to follow the world
+std::vector<bool> g_drawn_added;                   // each one light added (Additive): a flare's piece
 std::unordered_map<uint64_t, Last> g_last;         // last frame's, by box, the anchor of each one's run
 std::vector<Box> g_last_boxes;                     // last frame's, for finding a moved one
 constexpr float kSameSize = 0.004f;                // clip space: a box this close in width and height is the same
@@ -111,11 +112,19 @@ void GroupDrawn() {
     for (size_t start = 0; start < n;) {
         Box run = g_drawn[start];
         bool world = g_drawn_world[start];
+        bool added = g_drawn_added[start];
         size_t end = start + 1;
         for (; end < n && Touches(run, g_drawn[end]); end++) {
             run = Join(run, g_drawn[end]);
             world = world || g_drawn_world[end];
+            added = added || g_drawn_added[end];
         }
+        // A group in a bottom corner is the HUD's own (the radar, the ammo): never the world's, whatever moved. The radar
+        // shifting as the binoculars or night vision came up was taken for a world following piece, centred, and kept so
+        // (in the 4:3 middle until a scope was used; user, 2026-11-18). By group: the subtitle box's pieces sit as low
+        // and as wide, but join across the screen. Light added (a flare) keeps its own rule
+        float cx = (run.x0 + run.x1) * 0.5f, cy = (run.y0 + run.y1) * 0.5f;
+        if (world && !added && cy < -0.4f && std::abs(cx) > 1.0f / 3) world = false;
         Last last{world ? Canvas::Centre : AnchorOf(run), world};
         for (size_t i = start; i < end; i++) g_last[BoxKey(g_drawn[i])] = last;
         start = end;
@@ -123,6 +132,7 @@ void GroupDrawn() {
     g_last_boxes.swap(g_drawn);
     g_drawn.clear();
     g_drawn_world.clear();
+    g_drawn_added.clear();
     if (g_menu_held && g_across && !g_across_first) {
         static int told = 0;
         if (told++ < 20) LOGR("2d: a menu frame began with another draw; kept a menu (%d)", told);
@@ -213,6 +223,7 @@ Canvas Decide(const Box& b, bool hide, bool wide, bool additive) {
     if (g_drawn.size() < kMaxGroups) {
         g_drawn.push_back(b);
         g_drawn_world.push_back(world);
+        g_drawn_added.push_back(additive);
     }
     if (g_trace.load() > 0)
         LOGR("2d trace: %.3f,%.3f-%.3f,%.3f (%.3fx%.3f) %s%s", b.x0, b.y0, b.x1, b.y1, b.x1 - b.x0, b.y1 - b.y0,

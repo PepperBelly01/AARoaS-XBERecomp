@@ -124,6 +124,8 @@ using ObjectRef = std::shared_ptr<Object>;
 uint32_t NewHandle(ObjectRef obj);
 ObjectRef FromHandle(uint32_t handle);
 bool CloseHandle(uint32_t handle);
+// NtReadFile's reads since the last call: how many and their milliseconds (files.cpp; the renderer's hitch log)
+void TakeDiscReads(uint32_t& count, double& ms);
 uint32_t DuplicateHandle(uint32_t handle);
 ObjectRef FromPointer(uint32_t guest);  // dispatcher object in guest memory, created on first use
 void Bind(ObjectRef obj, uint32_t guest);

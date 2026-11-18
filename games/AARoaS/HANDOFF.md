@@ -581,3 +581,19 @@ Mouse and keyboard, 16:9 widescreen, resolutions up to 4K, FoV, SMAA, ambient oc
   top-up to 100, 10000 flips the view, ReducedDamageType not honoured). At 250 the view narrows; grenades can kill.
   Next step for real invulnerability: catch TakeDamage in the script call path. Probes kept in aim_assist.cpp:
   LogProperties, FindClass.
+- **First use stutter** (d3d12.cpp, 2026-11-18): every frame more than 30 ms over the usual logs a `hitch:` line (shader
+  compiles, pipeline builds, new textures, disc reads, session totals; LogHitch, kernel::TakeDiscReads). The cause was
+  shader compiles (~20 ms) and pipeline builds (~15 ms) mid frame. Now: cache\shaders.bin (every compiled shader, all
+  read at start) and cache\pipelines.bin (the driver's ID3D12PipelineLibrary, saved every 10 s while new ones go in),
+  and new draw shaders and pipelines compiled and built on 1-3 worker threads (CompileAsync, TakeShader, EnsurePipeline),
+  the draw left out until they are back. After it a playtest logged compile 0 ms and pipelines 1 ms; the slow frames
+  left (~40 in a level, nothing of ours in them) are the game's own work. User: much smoother. The filled cache from
+  before is in _to_delete\cache_2026-11-18.
+- **Radar shifting with binoculars and night vision** (screen2d GroupDrawn): a group of pieces in a bottom corner is
+  never world following (the radar moved as the view changed and was centred, kept so). By group, as the subtitle
+  box's pieces are as low and as wide but join across the screen. User confirmed.
+- **Open, logged for later:** on one mission's start (a forest hill, "Move up with Alpha"), the objective star shows as
+  a small dot high in the sky, only at the start; later stars are right. The _test build (older) does it too.
+- **AO in thick fog** (kAoHlsl occlusion_apply): the fade is the fog's visibility cubed, as the darkening belongs to the
+  surface under the fog, not the haze over it (a sandstorm map, linear fog -700 to 4000: soldiers half in it showed dark
+  outlines). User: better.

@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <cctype>
+#include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <cstdio>
@@ -639,7 +640,21 @@ static uint32_t Transfer(const Args& a, bool write, uint32_t pages) {
     return Finish(*f, kSuccess, n, event, apc, apc_ctx, iosb);
 }
 
-KERNEL_EXPORT(219, NtReadFile, 8) { return Transfer(a, false, 0); }
+// reads timed for the renderer's hitch log (gpu/d3d12.cpp LogHitch): count and microseconds since it last took them
+static std::atomic<uint32_t> g_reads{0};
+static std::atomic<uint64_t> g_read_us{0};
+void TakeDiscReads(uint32_t& count, double& ms) {
+    count = g_reads.exchange(0);
+    ms = double(g_read_us.exchange(0)) / 1000.0;
+}
+
+KERNEL_EXPORT(219, NtReadFile, 8) {
+    auto t = std::chrono::steady_clock::now();
+    uint32_t r = Transfer(a, false, 0);
+    g_reads++;
+    g_read_us += uint64_t(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - t).count());
+    return r;
+}
 KERNEL_EXPORT(236, NtWriteFile, 8) { return Transfer(a, true, 0); }
 // the buffer argument is an array of one page per element
 KERNEL_EXPORT(220, NtReadFileScatter, 8) { return Transfer(a, false, a[5]); }
