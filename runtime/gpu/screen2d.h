@@ -23,7 +23,9 @@ bool Place(const State& s, Assembled& out, int k);
 
 // A fixed function draw through an orthographic projection (a 2D canvas the game draws with transforms, as Unreal's
 // HUD): where its picture goes on a 16:9 frame
-enum class Canvas { Not, Keep, Hide, Left, Centre, Right };
+// Spread: kept over the whole screen, its picture shown 4:3 in the middle (its texture coordinates spread, the edges
+// stretched out to the sides): a briefing's map board
+enum class Canvas { Not, Keep, Hide, Left, Centre, Right, Spread };
 Canvas Classify(const State& s, const Assembled& a);
 // the clip space matrix (row vectors, 16 floats) narrowed toward the canvas anchor
 void Narrow(Canvas anchor, float m[16]);

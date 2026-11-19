@@ -765,9 +765,28 @@ void BeforeDraw(bool up) {
     if (g_ao.armed && !screen && !flat && blend && !zwrite) g_ao_blended = true;
     // blended draws writing depth once particles are held: the world is done, and these (the tunnel's haze) flatten
     // the depth the AO reads, so it goes ahead of them (the floor's AO came and went by where one stood; 2026-11-15)
-    bool after = blend && zwrite && !screen && !flat && g_held_n > 0;
-    if (screen || flat || after) {
-        if (g_ao.armed && (g_draws - g_ao.draws >= kWorldDraws || (g_ao_blended && g_draws - g_ao.draws >= kMinWorld)))
+    // or once any blended draw went by (light added, not held: the warehouse's light shafts or glass, AO coming and
+    // going as they covered the view; user, 2026-11-18)
+    // A blended draw writing depth comes after the solid world in this game: from kAfterSolid draws on it sets AO off
+    // whatever came before (a view filled by a wall near: 5 solid draws, then the glass or light shaft, and AO went
+    // after it; user, 2026-11-18)
+    // 4: the sky's own pass ahead of the world outdoors (1 or 2 draws, a layer among them, then a depth clear) took AO
+    // when it was 2 (AO gone outside the warehouse; user, 2026-11-18)
+    constexpr uint64_t kAfterSolid = 4;
+    // not alpha tested: foliage (wheat, hay) is blended and writes depth too, but cut out, solid where drawn, and needs
+    // the AO (AO gone from the grass and the bales coming and going once these started it; user, 2026-11-18)
+    bool tested = g_state.simple[gpu::kMAlphaTestEnable / 4] != 0;
+    // nor blended over (dest INVSRCALPHA): the desert's foliage is, interleaved with its cut out foliage (bushes with AO
+    // or not by the view). The warehouse glass mixes otherwise (F9: M), light shafts add (L) (user, 2026-11-18)
+    bool over = g_state.simple[gpu::kMDestBlend / 4] == 0x303;
+    bool layer = blend && zwrite && !tested && !over && !screen && !flat;
+    // after held particles, any blended layer writing depth, cut out or not: the tunnel's haze is alpha tested, after its
+    // smoke (AO flattened under it again once alpha tested layers were left out; user, 2026-11-18)
+    bool after = (layer && g_ao_blended) || (blend && zwrite && !screen && !flat && g_held_n > 0);
+    if (screen || flat || layer || after) {
+        uint64_t drawn = g_draws - g_ao.draws;
+        if (g_ao.armed && (drawn >= kWorldDraws || ((g_ao_blended || after) && drawn >= kMinWorld) ||
+                           (layer && drawn >= kAfterSolid)))
             RunOcclusion();
         ReleaseParticles();
     }
@@ -777,7 +796,12 @@ void BeforeDraw(bool up) {
     if (screen) Trace('h');
     else if (flat) Trace('f');
     else if (up) Trace(blend && !zwrite ? 'u' : 'U');
-    else Trace(blend ? (zwrite ? 'B' : 'b') : (zwrite ? 'o' : 'n'));
+    // B written depth, blended, not alpha tested, by its blend: B over (dest INVSRCALPHA), L light added (dest ONE), M
+    // another (modulate and the like); T alpha tested
+    else if (blend && zwrite && !tested) {
+        uint32_t dest = g_state.simple[gpu::kMDestBlend / 4];
+        Trace(dest == 0x303 ? 'B' : dest == 1 ? 'L' : 'M');
+    } else Trace(blend ? (zwrite ? 'T' : 'b') : (zwrite ? 'o' : 'n'));
 }
 
 // a game hook told each screen space draw's box (pixels of the game's frame), for its menus (d3d::OnScreenDraw)

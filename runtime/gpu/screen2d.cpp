@@ -81,7 +81,9 @@ bool g_any = false, g_menu = false, g_in_run = false;
 // Held only while a band shows (across, not down the whole screen): play draws a full screen layer every frame after
 // a cutscene (its fade), which held the menu on and bunched the HUD into the middle (user, 2026-11-13).
 bool g_menu_last = false, g_menu_held = false, g_across = false, g_across_first = false, g_band = false;
-bool g_full_first = false, g_corner = false;  // the first draw a full screen layer; a piece in a corner
+bool g_full_first = false, g_corner = false;  // the first draw a full screen layer; a piece of the HUD's corners
+bool g_briefing_last = false;  // last frame: begun by a full screen layer, no HUD corner piece (a briefing)
+bool g_big = false, g_big_last = false;  // a piece half the screen or more each way (a briefing's map picture)
 Box g_run{};
 Canvas g_run_anchor = Canvas::Centre;
 // clip space (the frame is 2 across): a run takes a draw this near it, a word space across, touching up and down
@@ -139,7 +141,10 @@ void GroupDrawn() {
     }
     // or a frame begun by a full screen layer with nothing in the corners: a briefing over its backdrop, not night
     // vision or a scope over play, whose HUD (ammo, compass) sits in the corners, hidden or not (user, 2026-11-15)
-    g_menu_last = (g_menu && g_band) || (g_full_first && !g_corner);
+    g_briefing_last = g_full_first && !g_corner;
+    g_big_last = g_big;
+    g_big = false;
+    g_menu_last = (g_menu && g_band) || g_briefing_last;
     g_any = g_menu = g_in_run = g_menu_held = g_across = g_across_first = g_band = g_full_first = g_corner = false;
 }
 
@@ -162,7 +167,7 @@ bool Additive(const State& s) { return s.simple[kMBlendEnable / 4] && s.simple[k
 // additive: the draw is light added (Additive). One that follows the world is placed where the game put it: the flare
 // is placed through the camera's projection, already widened, so narrowing it again set the sun's core apart from the
 // sun (two suns); name tags, placed by the game's own 4:3 sums, are narrowed
-Canvas Decide(const Box& b, bool hide, bool wide, bool additive) {
+Canvas Decide(const Box& b, bool hide, bool wide, bool additive, bool textured) {
     bool first = !g_any;
     g_any = true;
     bool across = b.x1 - b.x0 >= 2 * kFill;
@@ -187,13 +192,25 @@ Canvas Decide(const Box& b, bool hide, bool wide, bool additive) {
         if (first && (band || g_menu_last)) g_menu = g_across_first = true;
         if (first && !band) g_full_first = true;
         g_across = true;
+        // a briefing's full screen layer is its map board (frame and grid): 4:3 in the middle with the map on it, the
+        // room around it still 16:9. Stretched, the board did not line up with its map (user, 2026-11-18)
+        // A picture: a fade (plain colour, the HUD hidden in a cutscene) still covers the whole screen
+        // and with the map picture on it last frame: a cutscene's letterbox is a picture too, with nothing big on it
+        bool board = first && !band && g_briefing_last && g_big_last && textured;
         if (g_trace.load() > 0)
-            LOGR("2d trace: %.3f,%.3f-%.3f,%.3f (%.3fx%.3f) across%s", b.x0, b.y0, b.x1, b.y1, b.x1 - b.x0, b.y1 - b.y0,
-                 g_menu ? ", menu" : "");
+            LOGR("2d trace: %.3f,%.3f-%.3f,%.3f (%.3fx%.3f) across%s%s", b.x0, b.y0, b.x1, b.y1, b.x1 - b.x0,
+                 b.y1 - b.y0, g_menu ? ", menu" : "", board ? ", briefing board" : "");
+        if (board) return wide ? Canvas::Spread : Canvas::Keep;
         return Canvas::Keep;
     }
     // a piece in a corner (the HUD's ammo or compass), seen hidden or not (EndFrame)
-    if (std::abs(b.x0 + b.x1) > 1.0f && std::abs(b.y0 + b.y1) > 1.0f) g_corner = true;
+    // reaching the side of the screen low down: the ammo's and the radar's frames do; a briefing's subtitle, starting far left
+    // and low, had counted as a corner piece by its middle, and the briefing as play (its map stretched; 2026-11-18)
+    if ((b.x0 <= -0.98f || b.x1 >= 0.98f) && b.y0 + b.y1 < -0.8f) g_corner = true;
+    // or a sizeable piece low at a side (the radar's circle): with night vision or binoculars up the HUD has no frames to
+    // reach the side, and the frame went 4:3 as a briefing (user, 2026-11-18). A subtitle's letters are small
+    if (b.x1 - b.x0 >= 0.1f && b.y1 - b.y0 >= 0.15f && std::abs(b.x0 + b.x1) > 0.8f && b.y0 + b.y1 < -0.8f) g_corner = true;
+    if (b.x1 - b.x0 >= 0.5f && b.y1 - b.y0 >= 0.5f) g_big = true;
     if (g_menu) return wide ? Canvas::Centre : Canvas::Keep;  // a menu over the 3D view: as made, hidden or not
     if (hide) return Canvas::Hide;
     if (!wide) return Canvas::Keep;
@@ -328,8 +345,32 @@ bool Place(const State& s, Assembled& out, int k) {
         const Box& g = span[Find(group, 0)];
         Box c{(g.x0 - vx) / vw * 2 - 1, 1 - (g.y1 - float(s.viewport.y)) / vh * 2, (g.x1 - vx) / vw * 2 - 1,
               1 - (g.y0 - float(s.viewport.y)) / vh * 2};
-        Canvas d = Decide(c, hide, wide, Additive(s));
+        Canvas d = Decide(c, hide, wide, Additive(s), s.textures[0] != 0);
         if (d == Canvas::Hide) return false;
+        if (d == Canvas::Spread) {
+            // the texture coordinates (FVF texture 0, register 9) spread about their middle by 4:3: the picture shown 4:3
+            // in the middle, its edge texels carried out to the sides, with the texture clamped (else as before)
+            constexpr uint32_t kTex0 = 9, kClamp = 3;
+            if (!(out.regs & (1u << kTex0)) || s.tss[0][kTssAddressU] != kClamp) {
+                static int told = 0;
+                if (told++ < 8)
+                    LOGR("2d: briefing board not spread: texture 0 coordinates %s, address U %u", (out.regs & (1u << kTex0)) ? "in" : "missing",
+                         s.tss[0][kTssAddressU]);
+                return true;
+            }
+            static int spread_told = 0;
+            if (spread_told++ < 3) LOGR("2d: briefing board spread to 4:3 in the middle");
+            uint32_t t = uint32_t(std::popcount(uint32_t(out.regs) & ((1u << kTex0) - 1)));
+            auto u = [&](uint32_t v) -> float& { return out.vertices[(size_t(v) * regs + t) * 4]; };
+            float u0 = u(0), u1 = u(0);
+            for (uint32_t v = 1; v < n; v++) {
+                u0 = std::min(u0, u(v));
+                u1 = std::max(u1, u(v));
+            }
+            float mid = (u0 + u1) * 0.5f;
+            for (uint32_t v = 0; v < n; v++) u(v) = mid + (u(v) - mid) / kNarrow;
+            return true;
+        }
         if (d != Canvas::Left && d != Canvas::Centre && d != Canvas::Right) return true;
         float at = d == Canvas::Left ? vx : d == Canvas::Right ? vx + vw : vx + vw / 2;
         for (uint32_t v = 0; v < n; v++) x(v) = at + (x(v) - at) * kNarrow;
@@ -429,7 +470,8 @@ Canvas Classify(const State& s, const Assembled& a) {
         b.y1 = std::max(b.y1, cy / cw);
     }
     if (b.x0 > b.x1) return Canvas::Keep;
-    return Decide(b, hide, wide, Additive(s));
+    // Spread: the renderer draws it with a texture transform (D3D12Backend::Draw), the vertices being the title's own
+    return Decide(b, hide, wide, Additive(s), s.textures[0] != 0);
 }
 
 void Narrow(Canvas anchor, float m[16]) {

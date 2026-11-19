@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <cctype>
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -418,11 +419,32 @@ bool ReadGameFile(const std::string& xbox_path, std::vector<uint8_t>& out) {
 
 // exports
 
+// the last files opened, for F9 (DumpRecentFiles: a voice line's file, when dialogue is missing; 2026-11-18)
+static std::mutex g_recent_lock;
+static std::array<std::pair<uint64_t, std::string>, 24> g_recent_files;
+static size_t g_recent_next = 0;
+static uint64_t NowMs() {
+    return uint64_t(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());
+}
+void DumpRecentFiles() {
+    std::lock_guard<std::mutex> l(g_recent_lock);
+    uint64_t now = NowMs();
+    LOGR("files: the last files opened, oldest first");
+    for (size_t i = 0; i < g_recent_files.size(); i++) {
+        const auto& f = g_recent_files[(g_recent_next + i) % g_recent_files.size()];
+        if (!f.second.empty()) LOGR("files: -%.1fs %s", (now - f.first) / 1000.0, f.second.c_str());
+    }
+}
+
 KERNEL_EXPORT(190, NtCreateFile, 9) {
     uint32_t handle_out = a[0], access = a[1], attrs = a[2], iosb = a[3], disposition = a[7], options = a[8];
     (void)access;
     uint32_t root;
     std::string name = ObjectName(attrs, &root);
+    {
+        std::lock_guard<std::mutex> l(g_recent_lock);
+        g_recent_files[g_recent_next++ % g_recent_files.size()] = {NowMs(), name};
+    }
     Target t = Resolve(name, root);
     if (t.disc) return OpenOnDisc(t.entry, name, handle_out, iosb, disposition, options);
     const std::string& host = t.host;
@@ -634,6 +656,17 @@ static uint32_t Transfer(const Args& a, bool write, uint32_t pages) {
         if (done < chunk) break;
     }
     f->pos = pos + n;
+    // a wave bank's first reads on each handle, how they are asked and answered (dialogue of the I-*.xwb banks heard
+    // missing with its subtitle shown, Rendezvous; user, 2026-11-18)
+    if (!write && f->xbox.size() > 4 && f->xbox.compare(f->xbox.size() - 4, 4, ".xwb") == 0) {
+        static std::mutex told_lock;
+        static std::map<uint32_t, int> told;
+        std::lock_guard<std::mutex> l(told_lock);
+        if (told[h]++ < 40)
+            LOGR("xwb read %s: handle %X at %llu, %u bytes (%u read), event %X apc %X iosb %X%s, async %d%s", f->xbox.c_str(),
+                 h, static_cast<unsigned long long>(pos), len, n, event, apc, iosb, pages ? " scatter" : "", f->async,
+                 f->async && !event && !apc && iosb ? ": finishes late" : ": finishes now");
+    }
     if (write && n < len) return Finish(*f, 0xC000007F, n, event, apc, apc_ctx, iosb);  // disk full
     if (!write && f->async && !event && !apc && iosb) return FinishLate(f, len && !n ? kEndOfFile : kSuccess, n, iosb);
     if (!write && len && !n) return Finish(*f, kEndOfFile, 0, event, apc, apc_ctx, iosb);

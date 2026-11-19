@@ -26,6 +26,10 @@
 #include "kernel/kernel.h"
 #include "xdk/d3d8.h"
 
+namespace dsound {
+void DumpRecentSound();  // xdk/dsound.cpp: the last sound events into the log (F9)
+}
+
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND, UINT, WPARAM, LPARAM);
 
 namespace dispatch {
@@ -132,6 +136,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     if ((msg == WM_SYSKEYDOWN || msg == WM_KEYDOWN) && !(lp & (1 << 30))) {
         if (wp == VK_F9) {  // one frame's draw order into the log, for diagnosing
             d3d::TraceFrame();
+            dsound::DumpRecentSound();  // and the last sound events and files opened (missing dialogue)
+            kernel::DumpRecentFiles();
             return 0;
         }
         if (wp == VK_ESCAPE && input::CapturingKey()) {  // cancels a rebinding, the overlay stays

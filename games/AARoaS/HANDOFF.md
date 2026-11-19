@@ -597,3 +597,55 @@ Mouse and keyboard, 16:9 widescreen, resolutions up to 4K, FoV, SMAA, ambient oc
 - **AO in thick fog** (kAoHlsl occlusion_apply): the fade is the fog's visibility cubed, as the darkening belongs to the
   surface under the fog, not the haze over it (a sandstorm map, linear fog -700 to 4000: soldiers half in it showed dark
   outlines). User: better.
+- **AO flicker in the warehouse and outdoors** (d3d8.cpp BeforeDraw, 2026-11-18): a blended draw writing depth and not
+  alpha tested (glass, light shafts, haze; F9 traces it B, alpha tested T) sets AO off from 4 draws after arming,
+  whatever came before (a near wall filled the view: 5 solid draws then the glass). 4, not 2: outdoors the sky has its
+  own pass of 1 or 2 draws ahead of the world. Alpha tested ones (wheat, hay) are solid world and never set it off.
+  User confirmed the warehouse, the tunnel and the farm field.
+- **Open: a dialogue line missing at the start of "Rendezvous"** (MSG Barnes: "You go with Dion, get us some recon on
+  this convoy...", subtitle shown, no voice). Found 2026-11-18 with the new diagnostics (F9 now also logs the last
+  sound events with each voice's format, volume and mix bins, live voice counts, and the last files opened; the log
+  gets each .xwb handle's first 6 reads). The line streams from D:\SoundsXBox\I-Barnes.xwb: XACT makes a stream
+  (ADPCM 22050 Hz mono, 5 packets), reads ONE 8192 byte piece (about 0.66 s, finishing late as XACT needs), Process'es
+  one packet, and 0.6 s later releases the stream, at the moment a second stream is made and released at once with no
+  read. Other banks stream normally (18432 byte reads two at a time). So the line is stopped on purpose, by XACT or the
+  game's dialogue logic, for a second cue that never plays. Next: trace XACT's cue stop and stream setup in the
+  recompiled code around the release (who calls CDirectSoundStream_Release / FlushEx then), and the second cue's name.
+  **Further (same day):** the line exists twice. When it plays, it is ONE wave from SF2_SFoasis.xwb (the mission bank,
+  18432 byte reads). When silent, the game assembles it from pieces to say the squad's names: Barnes's phrase from
+  I-Barnes.xwb (8192 bytes, ~0.66 s, Discontinuity after its one packet: XACT's own end) then a name insert from the small
+  I-* name banks (I-INDIG1, I-PELOPIDAS...). Piece 1 plays; piece 2's stream is made and set up (Pause(3), SetFormat,
+  pitch, volume) but never Process'ed, never read from disc, and its status never asked: ~0.1 s later XACT posts a cue
+  stop notification for it. The game's notification handler sub_002F9650 (after XACTEngineDoWork at 0x451999, called
+  from 0x2FC13C) reads it (IXACTEngine_GetNotification 0x44FE3E) and stops and releases the cue
+  (IXACTSoundBank_Stop 0x44FFF9 from 0x2F9A48, then 0x2F7F20). Cue Stop is 0x458BAC; SoundBank Stop 0x452CBB. So XACT's
+  cue/track state machine ends the name piece before its first packet. Next: read XACT's cue update (0x4587AA, state
+  0x45843C, 0x45A42C) for why a prepared streamed track ends with no data, e.g. the name bank (in-memory, read whole at
+  load: 2048 then 6144 bytes at offset 0) not marked ready. F9 diagnostics (dsound.cpp NoteSound, NoteStreamCall,
+  NoteStreamStack, NoteStreamGameStack; files.cpp .xwb read log) are left in; they cost little.
+  **Correction (same day):** there is no pre-recorded version. Every attempt (several nicknames, reloads) read a Barnes
+  phrase from I-Barnes.xwb (offsets vary: 3223552 / 3278848 / 5736448, the game picks a phrasing) then failed on the name
+  piece; the SF2_SFoasis.xwb reads ~10 s later are the conversation's NEXT lines. The one time it played was the
+  assembly working: a race in XACT preparing the name piece (no read issued for it), not a choice to force.
+- **FIXED: the dialogue missing in Rendezvous and wherever a line is assembled** (2026-11-18, user confirmed across
+  missions). An assembled line (a Barnes phrase from I-Barnes.xwb, then a name piece from an I-* name bank) is played as
+  successive cues. When a piece ended the game stopped its cue; our stream flush finished at once and reported not
+  PLAYING, so XACT freed the cue inside the stop. The next piece's cue took the same address, and the old cue's last
+  notification (type 0x800A0001) then reached the game's handler (sub_002F9650), which found the new cue there and
+  stopped it (the "unknown cue" path, IXACTSoundBank_Stop from 0x2F9A48). On a console a flushed voice takes a moment
+  to stop: dsound.cpp now has a stream flushed while playing report PLAYING|STARVED for 50 ms (Voice::stopping_until,
+  cleared by Process and Pause), so XACT frees the old cue in a later update and the next cue gets another address.
+  The XACT call trace that found it is in _to_delete\xact_trace.cpp (hooks on the API at 0x44FB6D-0x4500F2: copy it
+  back to src\game to use it again).
+- **AO rule by layer blend** (d3d8.cpp BeforeDraw): a depth writing blended layer sets AO off only when it mixes
+  otherwise than alpha over (F9: M, e.g. the warehouse glass) or adds light (L); alpha over layers (B: the desert's
+  foliage) and alpha tested ones (T: wheat) are world. After held particles any blended depth writing layer sets it off
+  (the tunnel's haze is T). User confirmed the warehouse, tunnel, wheat field and desert bushes.
+- **Briefing map** (screen2d): a briefing frame is one begun by a full screen layer with no HUD corner piece (now:
+  pieces reaching the screen's side low down, the ammo's and radar's frames; a far left subtitle had counted) and,
+  for the board, a big piece (the map picture) last frame. Its full screen board is drawn whole with texture 0's
+  transform scaling u by 4/3 about the middle (Canvas::Spread, D3D12Backend::Draw; the board is a 3D canvas draw,
+  clamped), so the board shows 4:3 in the middle under its map and its dark edges reach the sides. User confirmed.
+- **Steam Deck** (2026-11-18): the normal release zip runs perfectly under Proton (user tested: non-Steam game, forced
+  Proton). The 16:10 screen is letterboxed to 16:9. Later idea: a 16:10 aspect choice, kept separate so 16:9 and 4:3
+  stay exactly as they are.

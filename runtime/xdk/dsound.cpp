@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <atomic>
 #include <bit>
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <condition_variable>
@@ -220,6 +221,10 @@ struct Voice {
     bool playing = false, looping = false, paused = false;
     bool sync = false;  // held until IDirectSound_SynchPlayback
     bool active = false, ending = false;  // stream: took a packet since it went quiet, quiet again once they run out
+    // a stream flushed while it played reports PLAYING (starved) until then, as a console voice takes a moment to stop:
+    // XACT then frees the stopped cue in a later update, not inside the stop. Freed at once, the next cue played took
+    // its address and the old cue's last notification stopped it (a line's name piece in Rendezvous; 2026-11-18)
+    uint64_t stopping_until = 0;
     bool on = false;  // stream: its voice was started by Pause (resume, pause or synch pause) before any packet came
     // stream: an asynchronous FlushEx is under way, so packets submitted now come back flushed, unplayed, until the
     // title sets the stream up again (Pause, SetFormat, a plain flush)
@@ -905,6 +910,50 @@ Voice* Find(uint32_t obj) {
     return it == g_voices.end() ? nullptr : &it->second;
 }
 
+// The last sound events, for F9 (DumpRecentSound; dialogue heard missing with its subtitle shown, user 2026-11-18):
+// buffers made, filled, played and stopped, streams made and fed (a stream's packets counted on one line)
+struct SoundEvent {
+    uint64_t ms = 0;
+    uint32_t obj = 0;
+    uint32_t count = 0;
+    char text[160] = {};
+};
+std::array<SoundEvent, 1024> g_sound_events{};
+size_t g_sound_next = 0;
+std::unordered_map<uint32_t, uint64_t> g_stream_born;  // when each stream was made (NoteStreamCall)
+uint64_t SoundMs() {
+    return uint64_t(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());
+}
+template <typename... T>
+void NoteSound(uint32_t obj, const char* fmt, T... args) {
+    char text[160];
+    std::snprintf(text, sizeof(text), fmt, args...);
+    SoundEvent& last = g_sound_events[(g_sound_next + g_sound_events.size() - 1) % g_sound_events.size()];
+    if (last.obj == obj && !std::strcmp(last.text, text)) {  // the same again (a stream's packets): counted
+        last.count++;
+        last.ms = SoundMs();
+        return;
+    }
+    SoundEvent& e = g_sound_events[g_sound_next++ % g_sound_events.size()];
+    e.ms = SoundMs();
+    e.obj = obj;
+    e.count = 1;
+    std::memcpy(e.text, text, sizeof(text));
+}
+
+// a voice's outputs for NoteSound: each mix bin and its volume in millibels (the effects' bins included)
+std::string BinsText(const Voice& v) {
+    std::string s;
+    char b[24];
+    if (!v.nbins) return " bins: front L/R";
+    s = " bins:";
+    for (uint32_t i = 0; i < v.nbins; i++) {
+        std::snprintf(b, sizeof(b), " %u@%d", v.bin[i], v.bin_mb[v.bin[i]]);
+        s += b;
+    }
+    return s;
+}
+
 uint32_t NewBuffer(uint32_t desc, uint32_t out) {
     std::lock_guard<std::recursive_mutex> lock(g_lock);
     Start();
@@ -922,6 +971,7 @@ uint32_t NewBuffer(uint32_t desc, uint32_t out) {
         v.data = v.owned = mem::AllocContiguous(bytes, 0, 0xFFFFFFFF, 4);
         v.bytes = v.play_len = v.loop_len = bytes;
     }
+    // NoteSound(obj, "buffer made: format %X, %u ch, %u Hz, %u bytes%s", v.tag, v.channels, v.rate, bytes, v.is3d ? ", 3D" : "");
     W32(out, obj);
     return 0;
 }
@@ -941,6 +991,34 @@ float F32(uint32_t v) {
 }
 
 }  // namespace
+
+// F9: the last sound events into the log, oldest first, with how long ago (NoteSound)
+namespace dsound {
+void DumpRecentSound() {
+    std::lock_guard<std::recursive_mutex> lock(g_lock);
+    uint64_t now = SoundMs();
+    uint32_t buffers = 0, playing = 0, looping = 0, streams = 0, fed = 0;
+    for (const auto& [obj, v] : g_voices) {
+        if (v.stream) {
+            streams++;
+            fed += !v.packets.empty();
+        } else {
+            buffers++;
+            playing += v.playing;
+            looping += v.playing && v.looping;
+        }
+    }
+    LOGR("sound: now %u buffers (%u playing, %u of them looping), %u streams (%u with packets queued)", buffers, playing,
+         looping, streams, fed);
+    LOGR("sound: the last sound events, oldest first");
+    for (size_t i = 0; i < g_sound_events.size(); i++) {
+        const SoundEvent& e = g_sound_events[(g_sound_next + i) % g_sound_events.size()];
+        if (!e.count) continue;
+        LOGR("sound: -%.1fs %08X %s%s", (now - e.ms) / 1000.0, e.obj, e.text,
+             e.count > 1 ? (" x" + std::to_string(e.count)).c_str() : "");
+    }
+}
+}  // namespace dsound
 
 // device
 
@@ -1223,6 +1301,7 @@ HLE_STDCALL(IDirectSound_CreateSoundBuffer, 4) { return NewBuffer(a[1], a[2]); }
     static uint32_t buf_##name([[maybe_unused]] Voice& v, [[maybe_unused]] const Args& a)
 
 BUFFER(Release, 1) {
+    // (buffer releases not noted: gunfire filled the record)
     if (--v.refs > 0) return uint32_t(v.refs);
     if (v.owned) mem::FreeContiguous(v.owned);
     uint32_t obj = v.obj;
@@ -1244,9 +1323,12 @@ BUFFER(SetBufferData, 3) {
     v.play_start = v.loop_start = 0;
     v.pos = 0;
     ForgetBlocks(v);
+    // NoteSound(v.obj, "buffer data: %u bytes", a[2]);
     return 0;
 }
 BUFFER(Play, 4) {
+    NoteSound(v.obj, "play%s: %X %u ch %u Hz %u B vol %.2f%s", (a[3] & 1) ? " looping" : "", v.tag, v.channels,
+              v.rate, v.bytes, v.volume, BinsText(v).c_str());
     v.has_gain = false;  // a new sound does not ramp from the last one's levels
     v.playing = true;
     v.looping = a[3] & 1;
@@ -1255,6 +1337,7 @@ BUFFER(Play, 4) {
     return 0;
 }
 BUFFER(Stop, 1) {
+    NoteSound(v.obj, "stop");
     v.playing = false;
     return 0;
 }
@@ -1420,6 +1503,8 @@ static uint32_t NewStream(uint32_t desc, uint32_t out) {
     SetBins(v, R32(desc + 20));
     v.is3d = flags & 0x10;  // DSBCAPS_CTRL3D
     v.headroom = DefaultHeadroom(flags);
+    NoteSound(obj, "stream made: format %X, %u ch, %u Hz, %u packets", v.tag, v.channels, v.rate, v.max_packets);
+    g_stream_born[obj] = SoundMs();
     W32(out, obj);
     return 0;
 }
@@ -1427,6 +1512,53 @@ static uint32_t NewStream(uint32_t desc, uint32_t out) {
 HLE_STDCALL(DirectSoundCreateStream, 2) { return NewStream(a[0], a[1]); }
 HLE_STDCALL(IDirectSound_CreateSoundStream, 4) { return NewStream(a[1], a[2]); }
 
+// Every call on a stream in its first 5 seconds goes to NoteSound (F9): the method, its arguments, the answer and the
+// caller in the title (its return address), for XACT dropping a line's stream (Rendezvous; 2026-11-18)
+void NoteStreamCall(const char* name, uint32_t nargs, const Args& a, uint32_t r, uint32_t caller) {
+    auto born = g_stream_born.find(a[0]);
+    if (born == g_stream_born.end() || SoundMs() - born->second >= 5000) return;
+    uint32_t a1 = nargs > 1 ? a[1] : 0, a2 = nargs > 2 ? a[2] : 0;
+    if (!std::strcmp(name, "GetStatus") && a1)
+        NoteSound(a[0], "%s -> status %X from %08X", name, R32(a1), caller);
+    else
+        NoteSound(a[0], "%s(%X, %X) = %X from %08X", name, a1, a2, r, caller);
+}
+
+// the callers up the guest stack (frame pointer chain) for a stop or a release: who ends a line's stream
+void NoteStreamStack(uint32_t obj, const char* name, uint32_t ebp) {
+    auto born = g_stream_born.find(obj);
+    if (born == g_stream_born.end() || SoundMs() - born->second >= 5000) return;
+    std::string chain;
+    char hop[12];
+    for (int i = 0; i < 8 && ebp >= 0x10000 && ebp < 0xF0000000u && mem::IsCommitted(ebp) && mem::IsCommitted(ebp + 7); i++) {
+        uint32_t ret = R32(ebp + 4);
+        std::snprintf(hop, sizeof(hop), " %08X", ret);
+        chain += hop;
+        uint32_t next = R32(ebp);
+        if (next <= ebp) break;
+        ebp = next;
+    }
+    NoteSound(obj, "%s callers:%s", name, chain.c_str());
+}
+
+// the game's own return addresses on the stack (.text below 0x3BB000), past where the frame chain stops at XACT
+void NoteStreamGameStack(uint32_t obj, const char* name, uint32_t esp) {
+    auto born = g_stream_born.find(obj);
+    if (born == g_stream_born.end() || SoundMs() - born->second >= 5000) return;
+    std::string found;
+    char hop[12];
+    int n = 0;
+    for (uint32_t i = 0; i < 256 && n < 8; i++) {
+        // no further than mapped memory: the stack's top (reading past it crashed at start; 2026-11-18)
+        if (!mem::IsCommitted(esp + 4 * i)) break;
+        uint32_t v = R32(esp + 4 * i);
+        if (v < 0x11000 || v >= 0x3BB000) continue;
+        std::snprintf(hop, sizeof(hop), " %08X", v);
+        found += hop;
+        n++;
+    }
+    NoteSound(obj, "%s game stack:%s", name, found.c_str());
+}
 #define STREAM(name, nargs)                                     \
     static uint32_t str_##name(Voice& v, const Args& a);        \
     HLE_STDCALL(CDirectSoundStream_##name, nargs) {             \
@@ -1436,6 +1568,10 @@ HLE_STDCALL(IDirectSound_CreateSoundStream, 4) { return NewStream(a[1], a[2]); }
             std::lock_guard<std::recursive_mutex> lock(g_lock); \
             Voice* v = Find(a[0]);                              \
             r = v ? str_##name(*v, a) : 0x80004005u;            \
+            NoteStreamCall(#name, nargs, a, r, R32(ctx.esp));   \
+            if (!std::strcmp(#name, "FlushEx") || !std::strcmp(#name, "Release") || !std::strcmp(#name, "Flush")) \
+                NoteStreamStack(a[0], #name, ctx.ebp),          \
+                    NoteStreamGameStack(a[0], #name, ctx.esp);  \
             flushed.swap(t_flushed);                            \
         }                                                       \
         Run(ctx, flushed);                                      \
@@ -1459,6 +1595,8 @@ static void FlushStream(Voice& v, bool async = false) {
         t_flushed.push_back(*it);
         it = g_done.erase(it);
     }
+    constexpr uint64_t kStopMs = 50;
+    if (v.active || v.on) v.stopping_until = SoundMs() + kStopMs;  // stopping_until: Voice
     Deactivate(v);
 }
 
@@ -1469,10 +1607,12 @@ STREAM(SetFormat, 2) {
     ReadFormat(v, a[1]);
     v.freq = 0;  // the XDK sets the pitch back to the new format's own rate
     ForgetBlocks(v);
+    NoteSound(v.obj, "stream format: %X, %u ch, %u Hz", v.tag, v.channels, v.rate);
     return 0;
 }
 STREAM(Release, 1) {
     if (--v.refs > 0) return uint32_t(v.refs);
+    NoteSound(v.obj, "stream released (%u packets left)", uint32_t(v.packets.size()));
     FlushStream(v);
     uint32_t obj = v.obj;
     g_voices.erase(obj);
@@ -1495,6 +1635,8 @@ STREAM(GetStatus, 2) {
         s |= 0x10000;
         if (v.paused) s |= 0x20000;
         if (v.packets.empty()) s |= 0x40000;
+    } else if (v.stopping_until && SoundMs() < v.stopping_until) {
+        s |= 0x10000 | 0x40000;  // flushed while playing, still stopping (stopping_until)
     }
     W32(a[1], s);
     return 0;
@@ -1503,12 +1645,15 @@ STREAM(Process, 3) {
     uint32_t in = a[1];
     if (!in) return 0;
     Packet pk{R32(in), R32(in + 4), R32(in + 8), R32(in + 12), R32(in + 16)};
+    NoteSound(v.obj, "stream packet%s: %X %u Hz vol %.2f%s", v.flushing ? " while flushing (dropped)" : "", v.tag,
+              v.freq ? v.freq : v.rate, v.volume, BinsText(v).c_str());
     if (pk.completed_ptr) W32(pk.completed_ptr, 0);
     if (v.flushing) {  // comes back flushed, its callback later from the queue
         Complete(v, pk, kFlushed);
         return 0;
     }
     if (pk.status_ptr) W32(pk.status_ptr, kPacketPending);
+    v.stopping_until = 0;  // playing again: its real state
     v.packets.push_back(pk);
     if (!v.active) v.has_gain = false;  // after going quiet a stream starts its levels fresh
     v.active = true;
@@ -1539,6 +1684,7 @@ STREAM(FlushEx, 4) {
 // The first three start the voice, so the stream reports PLAYING even before its first packet.
 static void SetStreamPause(Voice& v, uint32_t mode) {
     v.flushing = false;  // XACT sets a stream up for its next cue with Pause
+    v.stopping_until = 0;
     v.paused = mode == 1 || mode == 3;
     v.sync = mode == 2;
     if (mode != 3) v.on = true;
@@ -1613,3 +1759,11 @@ STREAM(SetVelocity, 5) { return 0; }
 // (this, factor, apply): attenuation keeps the default factor of 1, like the listener's
 STREAM(SetRolloffFactor, 3) { return 0; }
 STREAM(SetI3DL2Source, 3) { return 0; }
+
+// a line from outside (the game's XACT trace, src\game\xact_trace.cpp) into the F9 sound record
+namespace dsound {
+void NoteText(uint32_t obj, const char* text) {
+    std::lock_guard<std::recursive_mutex> lock(g_lock);
+    NoteSound(obj, "%s", text);
+}
+}  // namespace dsound

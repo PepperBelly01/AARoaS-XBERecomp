@@ -60,8 +60,6 @@ This port was created using the [Xbox XBE Recomp](https://github.com/TGP482/Xbox
 ## Known Issues
 
 - With Target Zoom off, the M249's zoom level can be inconsistent when sighting a target.
-- On the some maps, ambient occlusion can show faint seams on the terrain or show through fog.
-- Some dialogue later in the game does not play correctly.
 - A scope, the binoculars or night vision may show its original 4:3 look for a moment the first time it is used, while its 16:9 version is made.
 
 ### Textures
@@ -78,6 +76,9 @@ Set in `settings.toml` (`custom_textures`, `dump_textures`, `texture_dump_format
 - **OS**
   - Windows 10 64-bit
 - **GPU** with support for Direct3D 12
+
+### Steam Deck
+- Runs on Steam Deck through Proton (add `AARoaS.exe` as a non-Steam game and force a Proton version), in 16:9 or 4:3, letterboxed for both.
 
 ## Building
 

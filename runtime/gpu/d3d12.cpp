@@ -3436,8 +3436,35 @@ void D3D12Backend::Draw(const State& s, uint32_t prim, uint32_t start, uint32_t 
     Assembled& a = asm_;
     if (!AssembleDraw(s, prim, start, count, indices, a)) return;
     // a 2D canvas drawn with transforms (the HUD): placed for a 16:9 frame, or hidden
-    g_canvas = screen2d::Classify(s, a);
+    static bool spreading = false;  // the Spread draw below, already placed
+    g_canvas = spreading ? screen2d::Canvas::Keep : screen2d::Classify(s, a);
     if (g_canvas == screen2d::Canvas::Hide) return;
+    // Spread (a briefing's map board): drawn over the whole screen with its texture coordinates scaled 4/3 about the
+    // middle, through texture 0's transform, so its picture shows 4:3 in the middle and its edge texels carry out to
+    // the sides. Only with the texture clamped (else the board would repeat at the sides); the title's state is left
+    // as it was (user, 2026-11-18)
+    if (g_canvas == screen2d::Canvas::Spread) {
+        constexpr uint32_t kClamp = 3, kCount2 = 2;
+        if (s.tss[0][kTssAddressU] != kClamp || s.tss[0][kTssTextureTransformFlags]) {
+            LOG_FIRST(4, "2d: briefing board not spread: texture address U %u, transform flags %X", s.tss[0][kTssAddressU],
+                      s.tss[0][kTssTextureTransformFlags]);
+            g_canvas = screen2d::Canvas::Keep;
+        } else {
+            static State spread;
+            spread = s;
+            spread.tss[0][kTssTextureTransformFlags] = kCount2;
+            auto& m = spread.transforms[16];  // D3DTS_TEXTURE0, row vectors: u' = u * m[0] + m[8] (2D coordinates)
+            m = {};
+            m[0] = 1.0f / 0.75f;
+            m[5] = m[10] = m[15] = 1.0f;
+            m[8] = 0.5f - 0.5f / 0.75f;
+            LOG_FIRST(2, "2d: briefing board spread to 4:3 in the middle");
+            spreading = true;
+            Draw(spread, prim, start, count, indices);
+            spreading = false;
+            return;
+        }
+    }
     // past the ring every upload is a buffer of its own: seconds lost on a frame that draws a whole level once
     if (CurrentFrame().used > kUploadSize - kUploadReserve) Submit(true);
     if (!BindTargets(s)) return;
@@ -4482,12 +4509,12 @@ void LogPerf() {
         Perf& p = g_perf;
         double n = double(perf_frames);
         double host = p.draw + p.clear + p.copy + p.present + p.sync;
-        LOGI("perf: %.1f fps %.2f ms/frame | host %.2f (draw %.2f: assemble %.2f bind %.2f [check %.2f, upload %.2f] "
+        LOGR("perf: %.1f fps %.2f ms/frame | host %.2f (draw %.2f: assemble %.2f bind %.2f [check %.2f, upload %.2f] "
              "compile %.2f; clear %.2f copy %.2f sync %.2f present %.2f [swap %.2f wait %.2f]) other %.2f",
              n * 1000.0 / el, el / n, host / n, p.draw / n, p.assemble / n, p.bind / n, p.sig / n, p.texup / n,
              p.compile / n, p.clear / n, p.copy / n, p.sync / n, p.present / n, p.swap / n, p.wait / n,
              (el - host) / n);
-        LOGI("perf: title thread per frame: recording %.2f ms, waiting %.2f ms (%.1f waits: read-back %.2f "
+        LOGR("perf: title thread per frame: recording %.2f ms, waiting %.2f ms (%.1f waits: read-back %.2f "
              "resource %.2f fence %.2f flush %.2f copy %.2f, next frame %.2f) | read-backs waited for: %.1f lock, "
              "%.1f NOOVERWRITE",
              g_perf_capture_ns.exchange(0) / n / 1e6, g_perf_wait_ns.exchange(0) / n / 1e6,
@@ -4496,7 +4523,7 @@ void LogPerf() {
              g_perf_wait_kind_ns[3].exchange(0) / n / 1e6, g_perf_wait_kind_ns[4].exchange(0) / n / 1e6,
              g_perf_wait_kind_ns[5].exchange(0) / n / 1e6, g_perf_sync_block.exchange(0) / n,
              g_perf_sync_late.exchange(0) / n);
-        LOGI("perf: per frame %.0f draws (%.0f raw) %.0fk verts %.1f MB upload %.1f overflow | %.0f checks %.2f MB "
+        LOGR("perf: per frame %.0f draws (%.0f raw) %.0fk verts %.1f MB upload %.1f overflow | %.0f checks %.2f MB "
              "hashed | %.1f tex uploads %.2f MB, %.1f new tex, %.1f new targets, %.1f target uploads, %.1f shrinks, "
              "%.1f read-backs %.1f late | %llu shaders %llu psos this second",
              p.draws / n, p.raw / n, p.verts / n / 1000.0, p.upload / n / 1048576.0, p.overflow / n, p.sigs / n,
